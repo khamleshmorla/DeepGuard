@@ -6,4 +6,5 @@ python-dotenv
 opencv-python-headless
 pillow
 numpy
-google-generativeai
+google-genai
+
