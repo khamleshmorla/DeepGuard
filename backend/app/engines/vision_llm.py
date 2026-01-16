@@ -54,9 +54,22 @@ Respond STRICTLY in this JSON format:
         }
 
 
-# ✅ ADD THIS FUNCTION (THIS FIXES THE CRASH)
-def run_vision_llm(image_bytes: bytes) -> dict:
+# ✅ FIXED FUNCTION — MATCHES orchestrator SIGNATURE
+def run_vision_llm(file_path: str, file_type: str) -> dict:
     """
-    Compatibility wrapper used by orchestrator.
+    Orchestrator-compatible Gemini Vision entrypoint.
+    Only processes images for now.
     """
+
+    if file_type != "image":
+        return {
+            "verdict": "UNKNOWN",
+            "confidence": 0,
+            "explanation": "Vision LLM skipped for non-image input."
+        }
+
+    # Read image bytes from file path
+    with open(file_path, "rb") as f:
+        image_bytes = f.read()
+
     return analyze_image_with_gemini(image_bytes)
