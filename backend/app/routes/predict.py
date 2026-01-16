@@ -3,7 +3,6 @@ from datetime import datetime
 import tempfile
 import os
 
-from app.engines.vision_llm import analyze_image_with_gemini
 from app.orchestrator import orchestrate_detection
 from app.schemas import PredictResponse, ForensicDetails, EngineInfo
 
