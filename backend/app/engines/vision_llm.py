@@ -5,18 +5,11 @@ import google.generativeai as genai
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Vision-capable model
 MODEL_NAME = "gemini-1.5-pro"
-
 model = genai.GenerativeModel(MODEL_NAME)
 
 
 def analyze_image_with_gemini(image_bytes: bytes) -> dict:
-    """
-    Uses Gemini Vision to analyze an image for deepfake indicators.
-    Returns verdict, confidence, and explanation.
-    """
-
     prompt = """
 You are a digital media forensics expert.
 
@@ -48,16 +41,22 @@ Respond STRICTLY in this JSON format:
         ]
     )
 
-    # Gemini returns text → parse carefully
     text = response.text.strip()
 
     try:
         import json
         return json.loads(text)
     except Exception:
-        # Fallback safety
         return {
             "verdict": "FAKE",
             "confidence": 50,
-            "explanation": "Unable to parse Gemini response reliably."
+            "explanation": "Gemini response parsing failed."
         }
+
+
+# ✅ ADD THIS FUNCTION (THIS FIXES THE CRASH)
+def run_vision_llm(image_bytes: bytes) -> dict:
+    """
+    Compatibility wrapper used by orchestrator.
+    """
+    return analyze_image_with_gemini(image_bytes)
