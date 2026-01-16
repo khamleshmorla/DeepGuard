@@ -1,4 +1,5 @@
 import os
+import json
 
 try:
     from google import genai
@@ -10,13 +11,14 @@ except Exception:
 
 def run_vision_llm(file_path: str, file_type: str) -> dict:
     """
-    Gemini Vision (production-grade).
-    - Uses real image input
-    - Normalized signal output
-    - Never crashes backend
+    Gemini Vision – Lovable-style forensic analysis
+    - Guilty until proven innocent
+    - Structured signals
+    - Rule-based verdict
+    - NEVER crashes backend
     """
 
-    # ---------- BASE SIGNALS (SAFE DEFAULT) ----------
+    # ---------------- SAFE DEFAULT ----------------
     base_signals = {
         "facialAnalysis": 50,
         "temporalConsistency": 50,
@@ -24,51 +26,71 @@ def run_vision_llm(file_path: str, file_type: str) -> dict:
         "metadataAnalysis": 50,
     }
 
-    # ---------- SKIP NON-IMAGES ----------
     if file_type != "image":
         return {
             "signals": base_signals,
             "verdict": "UNKNOWN",
             "confidence": 50,
-            "explanation": "Gemini Vision skipped for non-image input."
+            "explanation": "Vision LLM skipped for non-image input."
         }
 
-    # ---------- SDK NOT AVAILABLE ----------
     if not GENAI_AVAILABLE:
         return {
             "signals": base_signals,
             "verdict": "UNKNOWN",
             "confidence": 50,
-            "explanation": "Gemini SDK not available."
+            "explanation": "Gemini SDK unavailable."
         }
 
     try:
-        # ---------- LOAD IMAGE ----------
+        # ---------------- LOAD IMAGE ----------------
         with open(file_path, "rb") as f:
             image_bytes = f.read()
 
-        # ---------- INIT CLIENT ----------
+        # ---------------- INIT CLIENT ----------------
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-        # ---------- PROMPT (FORENSIC STYLE) ----------
+        # ---------------- FORENSIC SYSTEM PROMPT ----------------
         prompt = """
 You are a digital media forensics expert.
 
-Analyze this image for signs of AI manipulation or deepfakes.
+Default assumption: FAKE (guilty until proven innocent).
 
-Evaluate:
-- Facial symmetry and geometry
-- Eye reflection and gaze consistency
-- Skin texture realism
-- Hair and background blending
-- Compression artifacts
+Analyze the image carefully.
 
-Respond with:
-1. Verdict: REAL or FAKE
-2. Short explanation (2–3 lines)
+RED FLAGS (cause FAKE):
+- Eye reflection inconsistency
+- Over-smooth or waxy skin
+- Hair boundary artifacts
+- Warped or repeating background
+- GAN/compression artifacts
+
+AUTHENTICITY MARKERS (support REAL):
+- Natural skin imperfections
+- Asymmetry in face
+- Uneven lighting
+- Minor motion blur or noise
+- Camera-consistent compression
+
+Rules:
+- If ANY red flag is present → FAKE
+- REAL only if 3 or more authenticity markers AND zero red flags
+
+Respond STRICTLY in valid JSON:
+
+{
+  "facialAnalysis": number 0-100,
+  "temporalConsistency": number 0-100,
+  "artifactDetection": number 0-100,
+  "metadataAnalysis": number 0-100,
+  "redFlags": ["string"],
+  "authenticityMarkers": ["string"],
+  "verdict": "REAL or FAKE",
+  "explanation": "human-readable reasoning"
+}
 """
 
-        # ---------- GEMINI VISION CALL ----------
+        # ---------------- GEMINI VISION CALL ----------------
         response = client.models.generate_content(
             model="gemini-1.5-pro",
             contents=[
@@ -82,32 +104,49 @@ Respond with:
             ],
         )
 
-        explanation = response.text.strip() if response.text else ""
+        raw_text = response.text.strip()
 
-        # ---------- SIGNAL MAPPING ----------
-        # (Lovable-style synthetic signals from reasoning)
+        # ---------------- PARSE JSON ----------------
+        data = json.loads(raw_text)
+
         signals = {
-            "facialAnalysis": 75,
-            "temporalConsistency": 50,
-            "artifactDetection": 80,
-            "metadataAnalysis": 60,
+            "facialAnalysis": int(data.get("facialAnalysis", 50)),
+            "temporalConsistency": int(data.get("temporalConsistency", 50)),
+            "artifactDetection": int(data.get("artifactDetection", 50)),
+            "metadataAnalysis": int(data.get("metadataAnalysis", 50)),
         }
 
-        confidence = int(sum(signals.values()) / len(signals))
-        verdict = "FAKE" if confidence >= 60 else "REAL"
+        red_flags = data.get("redFlags", [])
+        authenticity = data.get("authenticityMarkers", [])
+        verdict = data.get("verdict", "FAKE")
+        explanation = data.get("explanation", "")
+
+        # ---------------- RULE-BASED CONFIDENCE ----------------
+        if verdict == "FAKE":
+            confidence = min(
+                100,
+                60 + len(red_flags) * 10 + signals["artifactDetection"] // 10
+            )
+        else:
+            confidence = min(
+                100,
+                70 + len(authenticity) * 5
+            )
 
         return {
             "signals": signals,
             "verdict": verdict,
             "confidence": confidence,
             "explanation": explanation,
+            "detectedTechniques": red_flags,
+            "authenticityMarkers": authenticity,
         }
 
     except Exception as e:
-        # ---------- ABSOLUTE SAFETY ----------
+        # ---------------- ABSOLUTE SAFETY ----------------
         return {
             "signals": base_signals,
             "verdict": "UNKNOWN",
             "confidence": 50,
-            "explanation": f"Gemini Vision failed safely: {str(e)}"
+            "explanation": f"Vision LLM failed safely: {str(e)}"
         }
