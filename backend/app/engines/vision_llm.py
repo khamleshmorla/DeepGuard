@@ -5,7 +5,8 @@ import google.generativeai as genai
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-MODEL_NAME = "gemini-1.5-pro"
+# ✅ FIXED: Vision-capable model
+MODEL_NAME = "gemini-1.5-pro-vision"
 model = genai.GenerativeModel(MODEL_NAME)
 
 
@@ -54,11 +55,9 @@ Respond STRICTLY in this JSON format:
         }
 
 
-# ✅ FIXED FUNCTION — MATCHES orchestrator SIGNATURE
 def run_vision_llm(file_path: str, file_type: str) -> dict:
     """
     Orchestrator-compatible Gemini Vision entrypoint.
-    Only processes images for now.
     """
 
     if file_type != "image":
@@ -68,7 +67,6 @@ def run_vision_llm(file_path: str, file_type: str) -> dict:
             "explanation": "Vision LLM skipped for non-image input."
         }
 
-    # Read image bytes from file path
     with open(file_path, "rb") as f:
         image_bytes = f.read()
 
