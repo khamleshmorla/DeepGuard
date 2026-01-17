@@ -2,6 +2,8 @@ from fastapi import APIRouter, UploadFile, File
 from datetime import datetime
 import tempfile
 import os
+import io
+from PIL import Image
 
 from app.orchestrator import orchestrate_detection
 from app.schemas import PredictResponse, ForensicDetails, EngineInfo
@@ -22,83 +24,58 @@ async def predict(file: UploadFile = File(...)):
         file_type = "image"
 
     # -----------------------------
-    # Read file bytes (for Gemini)
+    # Read file bytes
     # -----------------------------
-    file_bytes = await file.read()
+    raw_bytes = await file.read()
 
     # -----------------------------
-    # Save uploaded file temporarily (for heuristics / video)
+    # Normalize image input (CRITICAL)
     # -----------------------------
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+    if file_type == "image":
+        try:
+            img = Image.open(io.BytesIO(raw_bytes))
+            img = img.convert("RGB")  # force RGB
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=95)
+            file_bytes = buf.getvalue()
+        except Exception:
+            return {
+                "error": "Unsupported or corrupted image file."
+            }
+    else:
+        file_bytes = raw_bytes
+
+    # -----------------------------
+    # Save temp file
+    # -----------------------------
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
         tmp.write(file_bytes)
         tmp_path = tmp.name
 
     try:
         # -----------------------------
-        # STEP 5A — Run existing detection pipeline
-        # (heuristics, placeholders, etc.)
+        # SINGLE SOURCE OF TRUTH
         # -----------------------------
-        base_result = orchestrate_detection(tmp_path, file_type)
+        result = orchestrate_detection(tmp_path, file_type)
 
-        # -----------------------------
-        # STEP 5B — Gemini Vision (IMAGE ONLY)
-        # -----------------------------
-        gemini_result = None
-
-        if file_type == "image":
-            try:
-                gemini_result = analyze_image_with_gemini(file_bytes)
-            except Exception as e:
-                gemini_result = {
-                    "verdict": "FAKE",
-                    "confidence": 50,
-                    "explanation": "Gemini Vision analysis failed safely."
-                }
-
-        # -----------------------------
-        # STEP 5C — TEMPORARY DECISION LOGIC
-        # (Gemini drives verdict for now)
-        # -----------------------------
-        if gemini_result:
-            verdict = gemini_result["verdict"]
-            confidence = gemini_result["confidence"]
-            explanation = gemini_result["explanation"]
-
-            engine_primary = "gemini-vision"
-            engine_secondary = base_result["engine"]["primary"]
-        else:
-            verdict = base_result["verdict"]
-            confidence = base_result["confidence"]
-            explanation = "Gemini Vision not applied."
-
-            engine_primary = base_result["engine"]["primary"]
-            engine_secondary = base_result["engine"]["secondary"]
-
-        # -----------------------------
-        # Return standardized response
-        # -----------------------------
         return PredictResponse(
-            verdict=verdict,
-            confidence=confidence,
+            verdict=result["verdict"],
+            confidence=result["confidence"],
             fileName=file.filename,
             fileType=file_type,
             analyzedAt=datetime.utcnow(),
             details=ForensicDetails(
-                facialAnalysis=base_result["details"]["facialAnalysis"],
-                temporalConsistency=base_result["details"]["temporalConsistency"],
-                artifactDetection=base_result["details"]["artifactDetection"],
-                metadataAnalysis=base_result["details"]["metadataAnalysis"],
+                facialAnalysis=result["details"]["facialAnalysis"],
+                temporalConsistency=result["details"]["temporalConsistency"],
+                artifactDetection=result["details"]["artifactDetection"],
+                metadataAnalysis=result["details"]["metadataAnalysis"],
             ),
             engine=EngineInfo(
-                primary=engine_primary,
-                secondary=engine_secondary,
+                primary=result["engine"]["primary"],
+                secondary=result["engine"]["secondary"],
             ),
-            explanation=explanation,
         )
 
     finally:
-        # -----------------------------
-        # Cleanup temp file
-        # -----------------------------
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

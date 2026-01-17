@@ -4,14 +4,13 @@ import timm
 from torchvision import transforms
 from PIL import Image
 import numpy as np
-import os
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = "app/models/deepguard_multhead_celebdf_final.pth"
 
 
 # -------------------------------
-# Multi-head CNN architecture
+# Multi-head CNN
 # -------------------------------
 class DeepGuardMultiHead(nn.Module):
     def __init__(self, backbone="efficientnet_b0"):
@@ -72,7 +71,7 @@ def load_model():
 # -------------------------------
 _transform = transforms.Compose([
     transforms.Resize((224, 224)),
-    transforms.ToTensor(),   # uses NumPy internally
+    transforms.ToTensor(),
     transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225]
@@ -81,17 +80,26 @@ _transform = transforms.Compose([
 
 
 # -------------------------------
-# Public inference function
+# Inference
 # -------------------------------
 def run_cnn(image_path: str) -> dict:
     model = load_model()
 
-    image = Image.open(image_path).convert("RGB")
+    try:
+        with Image.open(image_path) as img:
+            image = img.convert("RGB")
+    except Exception as e:
+        print("⚠️ CNN image load failed:", e)
+        return {
+            "face": 50,
+            "texture": 50,
+            "artifact": 50,
+            "fake": 50,
+        }
 
     try:
         x = _transform(image).unsqueeze(0).to(DEVICE)
     except Exception as e:
-        # Absolute safety fallback
         print("⚠️ CNN preprocessing failed:", e)
         return {
             "face": 50,
