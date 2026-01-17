@@ -1,4 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
+
+numpy==1.26.4
+
 fastapi
 uvicorn
 python-multipart
@@ -6,9 +9,8 @@ pydantic
 python-dotenv
 opencv-python-headless
 pillow
-numpy
 google-genai
+
 torch==2.2.2
 torchvision==0.17.2
 timm==0.9.16
-
