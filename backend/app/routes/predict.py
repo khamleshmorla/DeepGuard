@@ -24,9 +24,10 @@ async def predict(file: UploadFile = File(...)):
         file_type = "image"
 
     # -----------------------------
-    # Read file bytes
+    # Read raw bytes
     # -----------------------------
     raw_bytes = await file.read()
+    print(f"📥 Received file: {file.filename}, size={len(raw_bytes) / 1024:.1f} KB")
 
     # -----------------------------
     # Normalize image input (CRITICAL)
@@ -35,13 +36,37 @@ async def predict(file: UploadFile = File(...)):
         try:
             img = Image.open(io.BytesIO(raw_bytes))
             img = img.convert("RGB")  # force RGB
+
+            # HARD DOWNSCALE for phone/Mac photos
+            MAX_SIZE = 1024
+            img.thumbnail((MAX_SIZE, MAX_SIZE))
+
+            print(f"🖼️ Normalized image size: {img.size}")
+
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=95)
             file_bytes = buf.getvalue()
-        except Exception:
-            return {
-                "error": "Unsupported or corrupted image file."
-            }
+
+        except Exception as e:
+            print("❌ Image normalization failed:", e)
+            return PredictResponse(
+                verdict="UNKNOWN",
+                confidence=0,
+                fileName=file.filename,
+                fileType=file_type,
+                analyzedAt=datetime.utcnow(),
+                details=ForensicDetails(
+                    facialAnalysis=0,
+                    temporalConsistency=0,
+                    artifactDetection=0,
+                    metadataAnalysis=0,
+                ),
+                engine=EngineInfo(
+                    primary="input-validation",
+                    secondary=None,
+                ),
+                explanation="Unsupported or corrupted image file.",
+            )
     else:
         file_bytes = raw_bytes
 
