@@ -1,62 +1,128 @@
 from app.engines.vision_llm import run_vision_llm
 from app.engines.heuristics import image_heuristics, video_heuristics
-from app.engines.cnn import predict_image_cnn
-from app.engines.heuristics import apply_cnn_signal
-
+from app.engines.cnn import run_cnn
 
 
 def orchestrate_detection(file_path: str, file_type: str) -> dict:
     """
-    Combines:
-    - Vision LLM (primary)
-    - Heuristics (support)
-    - CNN (optional, currently neutral)
+    DeepGuard forensic orchestration.
 
-    Returns Lovable-compatible forensic details.
+    Combines:
+    - Vision LLM (semantic reasoning)
+    - CNN (statistical evidence)
+    - Heuristics (deterministic checks)
+
+    Returns Lovable-compatible forensic response.
     """
 
-    # 1️⃣ Vision LLM (primary)
+    # -----------------------------
+    # 1️⃣ Vision LLM (reasoning)
+    # -----------------------------
     llm_result = run_vision_llm(file_path, file_type)
 
+    llm_signals = llm_result.get("signals", {
+        "facialAnalysis": 50,
+        "temporalConsistency": 50,
+        "artifactDetection": 50,
+        "metadataAnalysis": 50,
+    })
+
+    # -----------------------------
     # 2️⃣ Heuristics (support)
+    # -----------------------------
     if file_type == "image":
-        heuristic_details = image_heuristics(file_path)
+        heur = image_heuristics(file_path)
     else:
-        heuristic_details = video_heuristics(file_path)
+        heur = video_heuristics(file_path)
 
-    # 3️⃣ CNN (optional / stub)
-    cnn_score = predict_image_cnn(file_path)
-    heuristic_details = apply_cnn_signal(heuristic_details, cnn_score)
+    # -----------------------------
+    # 3️⃣ CNN (grounding evidence)
+    # -----------------------------
+    cnn = None
+    if file_type == "image":
+        cnn = run_cnn(file_path)
 
-    # 4️⃣ Merge signals (Vision LLM dominates)
+    # CNN fallback (safety)
+    if cnn is None:
+        cnn = {
+            "face": 50,
+            "texture": 50,
+            "artifact": 50,
+            "fake": 50,
+        }
+
+    # -----------------------------
+    # 4️⃣ Signal Fusion (Lovable-style)
+    # -----------------------------
+    facial = (
+        cnn["face"] * 0.6 +
+        llm_signals["facialAnalysis"] * 0.25 +
+        heur["facialAnalysis"] * 0.15
+    )
+
+    artifact = max(
+        cnn["artifact"],
+        llm_signals["artifactDetection"],
+        heur["artifactDetection"]
+    )
+
+    temporal = (
+        llm_signals["temporalConsistency"] * 0.6 +
+        heur["temporalConsistency"] * 0.4
+    )
+
+    metadata = heur["metadataAnalysis"]
+
     merged_details = {
-        "facialAnalysis": int(
-            (llm_result["signals"]["facialAnalysis"] * 0.7 +
-             heuristic_details["facialAnalysis"] * 0.3)
-        ),
-        "temporalConsistency": int(
-            (llm_result["signals"]["temporalConsistency"] * 0.7 +
-             heuristic_details["temporalConsistency"] * 0.3)
-        ),
-        "artifactDetection": int(
-            (llm_result["signals"]["artifactDetection"] * 0.7 +
-             heuristic_details["artifactDetection"] * 0.3)
-        ),
-        "metadataAnalysis": int(
-            (llm_result["signals"]["metadataAnalysis"] * 0.7 +
-             heuristic_details["metadataAnalysis"] * 0.3)
-        ),
+        "facialAnalysis": int(round(facial)),
+        "artifactDetection": int(round(artifact)),
+        "temporalConsistency": int(round(temporal)),
+        "metadataAnalysis": int(round(metadata)),
     }
 
-    final_confidence = int(sum(merged_details.values()) / len(merged_details))
-    final_verdict = "FAKE" if final_confidence >= 60 else "REAL"
+    # -----------------------------
+    # 5️⃣ Confidence Calculation
+    # -----------------------------
+    confidence = int(sum(merged_details.values()) / 4)
 
+    # -----------------------------
+    # 6️⃣ Calibration (reduce false FAKE)
+    # -----------------------------
+    natural_markers = 0
+
+    if merged_details["facialAnalysis"] < 40:
+        natural_markers += 1
+    if merged_details["artifactDetection"] < 35:
+        natural_markers += 1
+    if merged_details["metadataAnalysis"] < 40:
+        natural_markers += 1
+
+    # Hard veto (strong evidence)
+    if merged_details["artifactDetection"] >= 80 or cnn["fake"] >= 80:
+        verdict = "FAKE"
+        confidence = max(confidence, 80)
+
+    # Normal decision
+    elif confidence >= 65:
+        verdict = "FAKE"
+
+    # Real boost gate
+    elif natural_markers >= 2:
+        verdict = "REAL"
+        confidence = min(confidence + 10, 95)
+
+    else:
+        verdict = "REAL"
+
+    # -----------------------------
+    # 7️⃣ Final Response
+    # -----------------------------
     return {
-        "verdict": final_verdict,
-        "confidence": final_confidence,
+        "verdict": verdict,
+        "confidence": confidence,
         "details": merged_details,
         "engine": {
-            "primary": "vision-llm",
-            "secondary": "cnn-efficientnet"
+            "primary": "cnn+vision-llm",
+            "secondary": "heuristics"
         }
     }
