@@ -18,34 +18,37 @@ async def predict(file: UploadFile = File(...)):
     # -----------------------------
     # Determine file type
     # -----------------------------
-    if filename_lower.endswith((".mp4", ".mov", ".avi", ".webm")):
-        file_type = "video"
-    else:
-        file_type = "image"
+    file_type = (
+        "video"
+        if filename_lower.endswith((".mp4", ".mov", ".avi", ".webm"))
+        else "image"
+    )
 
-    # -----------------------------
-    # Read raw bytes
-    # -----------------------------
     raw_bytes = await file.read()
-    print(f"📥 Received file: {file.filename}, size={len(raw_bytes) / 1024:.1f} KB")
+    print(f"📥 Received file: {file.filename}, size={len(raw_bytes)/1024:.1f} KB")
 
     # -----------------------------
-    # Normalize image input (CRITICAL)
+    # Save ORIGINAL file (for EXIF)
+    # -----------------------------
+    with tempfile.NamedTemporaryFile(delete=False) as orig:
+        orig.write(raw_bytes)
+        orig_path = orig.name
+
+    # -----------------------------
+    # Create NORMALIZED image (for CNN / FFT)
     # -----------------------------
     if file_type == "image":
         try:
             img = Image.open(io.BytesIO(raw_bytes))
-            img = img.convert("RGB")  # force RGB
+            img = img.convert("RGB")
 
-            # HARD DOWNSCALE for phone/Mac photos
             MAX_SIZE = 1024
             img.thumbnail((MAX_SIZE, MAX_SIZE))
-
             print(f"🖼️ Normalized image size: {img.size}")
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=95)
-            file_bytes = buf.getvalue()
+            norm_bytes = buf.getvalue()
 
         except Exception as e:
             print("❌ Image normalization failed:", e)
@@ -68,20 +71,21 @@ async def predict(file: UploadFile = File(...)):
                 explanation="Unsupported or corrupted image file.",
             )
     else:
-        file_bytes = raw_bytes
+        norm_bytes = raw_bytes
 
-    # -----------------------------
-    # Save temp file
-    # -----------------------------
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-        tmp.write(file_bytes)
-        tmp_path = tmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as norm:
+        norm.write(norm_bytes)
+        norm_path = norm.name
 
     try:
         # -----------------------------
         # SINGLE SOURCE OF TRUTH
         # -----------------------------
-        result = orchestrate_detection(tmp_path, file_type)
+        result = orchestrate_detection(
+            file_path=norm_path,
+            file_type=file_type,
+            original_path=orig_path
+        )
 
         return PredictResponse(
             verdict=result["verdict"],
@@ -102,5 +106,6 @@ async def predict(file: UploadFile = File(...)):
         )
 
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        for p in (orig_path, norm_path):
+            if os.path.exists(p):
+                os.remove(p)
