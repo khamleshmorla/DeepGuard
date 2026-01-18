@@ -4,9 +4,13 @@ import timm
 from torchvision import transforms
 from PIL import Image
 import numpy as np
+import math
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = "app/models/deepguard_multhead_celebdf_final.pth"
+
+# Temperature for confidence calibration
+CNN_TEMPERATURE = 2.5
 
 
 # -------------------------------
@@ -45,6 +49,19 @@ class DeepGuardMultiHead(nn.Module):
             "artifact": torch.sigmoid(self.artifact_head(feats)),
             "final": torch.sigmoid(self.final_head(feats)),
         }
+
+
+# -------------------------------
+# Temperature scaling
+# -------------------------------
+def temperature_scale(prob: float, temperature: float = CNN_TEMPERATURE) -> float:
+    """
+    Reduce CNN overconfidence without changing ranking.
+    """
+    prob = min(max(prob, 1e-6), 1 - 1e-6)
+    logit = math.log(prob / (1 - prob))
+    scaled_logit = logit / temperature
+    return 1 / (1 + math.exp(-scaled_logit))
 
 
 # -------------------------------
@@ -111,9 +128,15 @@ def run_cnn(image_path: str) -> dict:
     with torch.no_grad():
         out = model(x)
 
+    # Raw probabilities
+    raw_fake = out["final"].item()
+
+    # Temperature calibration
+    calibrated_fake = temperature_scale(raw_fake)
+
     return {
         "face": float(out["face"].item() * 100),
         "texture": float(out["texture"].item() * 100),
         "artifact": float(out["artifact"].item() * 100),
-        "fake": float(out["final"].item() * 100),
+        "fake": float(calibrated_fake * 100),  # CALIBRATED
     }
