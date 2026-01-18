@@ -6,24 +6,16 @@ from app.engines.fft_detector import fft_score
 
 def orchestrate_detection(file_path: str, file_type: str) -> dict:
     """
-    DeepGuard forensic orchestration.
+    DeepGuard forensic orchestration (FFT Phase 2).
 
-    Combines:
-    - Vision LLM (semantic reasoning)
-    - CNN (statistical evidence)
-    - FFT (frequency-domain, OBSERVATION ONLY)
-    - Heuristics (deterministic checks)
-
-    FFT Phase 1:
-    - FFT is logged
-    - FFT does NOT affect verdict or confidence
+    FFT is now used as a REAL-support signal,
+    not a hard FAKE veto yet.
     """
 
     # -----------------------------
-    # 1️⃣ Vision LLM (reasoning)
+    # 1️⃣ Vision LLM
     # -----------------------------
     llm_result = run_vision_llm(file_path, file_type)
-
     llm_signals = llm_result.get("signals", {
         "facialAnalysis": 50,
         "temporalConsistency": 50,
@@ -32,41 +24,31 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
     })
 
     # -----------------------------
-    # 2️⃣ Heuristics (support)
+    # 2️⃣ Heuristics
     # -----------------------------
-    if file_type == "image":
-        heur = image_heuristics(file_path)
-    else:
-        heur = video_heuristics(file_path)
+    heur = image_heuristics(file_path) if file_type == "image" else video_heuristics(file_path)
 
     # -----------------------------
-    # 3️⃣ CNN (grounding evidence)
+    # 3️⃣ CNN
     # -----------------------------
-    cnn = None
-    if file_type == "image":
-        cnn = run_cnn(file_path)
-
-    # CNN fallback (safety)
-    if cnn is None:
-        cnn = {
-            "face": 50,
-            "texture": 50,
-            "artifact": 50,
-            "fake": 50,
-        }
+    cnn = run_cnn(file_path) if file_type == "image" else {
+        "face": 50,
+        "texture": 50,
+        "artifact": 50,
+        "fake": 50,
+    }
 
     # -----------------------------
-    # 4️⃣ FFT (PHASE 1 — LOG ONLY)
+    # 4️⃣ FFT
     # -----------------------------
-    if file_type == "image":
-        fft = fft_score(file_path)
-    else:
-        fft = 50
+    fft = fft_score(file_path) if file_type == "image" else 50
 
-    print(f"📊 FFT anomaly score: {fft:.1f}")
+    # EXPLICIT LOGGING
+    print(f"📊 FFT score: {fft:.1f}")
+    print(f"🧠 CNN fake: {cnn['fake']:.1f}")
 
     # -----------------------------
-    # 5️⃣ Signal Fusion (NO FFT YET)
+    # 5️⃣ Signal Fusion
     # -----------------------------
     facial = (
         cnn["face"] * 0.6 +
@@ -94,48 +76,40 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
         "metadataAnalysis": int(round(metadata)),
     }
 
-    # -----------------------------
-    # 6️⃣ Confidence Calculation
-    # -----------------------------
     confidence = int(sum(merged_details.values()) / 4)
 
     # -----------------------------
-    # 7️⃣ Calibration (PRE-FFT)
+    # 6️⃣ FFT-AWARE CALIBRATION (PHASE 2)
     # -----------------------------
-    natural_markers = 0
 
-    if merged_details["facialAnalysis"] < 40:
-        natural_markers += 1
-    if merged_details["artifactDetection"] < 35:
-        natural_markers += 1
-    if merged_details["metadataAnalysis"] < 40:
-        natural_markers += 1
-
-    # Hard veto (CNN / artifact only)
-    if merged_details["artifactDetection"] >= 80 or cnn["fake"] >= 80:
+    # Hard fake if artifacts are extreme
+    if artifact >= 85 or cnn["fake"] >= 85:
         verdict = "FAKE"
-        confidence = max(confidence, 80)
+        confidence = max(confidence, 85)
 
+    # FFT supports REAL (camera photos)
+    elif fft < 45 and cnn["fake"] < 75:
+        verdict = "REAL"
+        confidence = min(confidence + 15, 95)
+
+    # Normal fake decision
     elif confidence >= 65:
         verdict = "FAKE"
-
-    elif natural_markers >= 2:
-        verdict = "REAL"
-        confidence = min(confidence + 10, 95)
 
     else:
         verdict = "REAL"
 
     # -----------------------------
-    # 8️⃣ Final Response
+    # 7️⃣ Final Response
     # -----------------------------
     return {
         "verdict": verdict,
         "confidence": confidence,
         "details": merged_details,
         "engine": {
-            "primary": "cnn+vision-llm",
+            "primary": "cnn+vision-llm+fft",
             "secondary": "heuristics",
-            "fft_debug": round(fft, 1)   # TEMPORARY (Phase 1 only)
+            "fft_debug": round(fft, 1),
+            "cnn_fake": round(cnn["fake"], 1)
         }
     }
