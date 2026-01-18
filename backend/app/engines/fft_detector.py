@@ -1,11 +1,14 @@
 import cv2
 import numpy as np
 
+
 def fft_score(image_path: str) -> float:
     """
     Frequency-domain anomaly score.
     Returns a value in [0, 100].
     Higher = more likely AI-generated.
+
+    Phase 1: OBSERVATION ONLY
     """
 
     try:
@@ -15,7 +18,9 @@ def fft_score(image_path: str) -> float:
 
         img = cv2.resize(img, (256, 256))
 
+        # -----------------------------
         # FFT
+        # -----------------------------
         f = np.fft.fft2(img)
         fshift = np.fft.fftshift(f)
         magnitude = np.log(np.abs(fshift) + 1)
@@ -23,20 +28,30 @@ def fft_score(image_path: str) -> float:
         h, w = magnitude.shape
         cy, cx = h // 2, w // 2
 
-        # Separate low vs high frequency
-        radius = min(h, w) // 6
-        mask = np.ones_like(magnitude, dtype=np.uint8)
-        cv2.circle(mask, (cx, cy), radius, 0, -1)
+        # -----------------------------
+        # PURE NUMPY MASK (NO OPENCV)
+        # -----------------------------
+        y, x = np.ogrid[:h, :w]
+        distance = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
 
-        high_freq_energy = magnitude[mask == 1].mean()
-        low_freq_energy = magnitude[mask == 0].mean()
+        radius = min(h, w) // 6
+
+        low_freq_mask = distance <= radius
+        high_freq_mask = distance > radius
+
+        low_freq_energy = magnitude[low_freq_mask].mean()
+        high_freq_energy = magnitude[high_freq_mask].mean()
 
         ratio = high_freq_energy / (low_freq_energy + 1e-6)
 
-        # Normalize ratio → score
+        # -----------------------------
+        # Ratio → Score mapping
+        # -----------------------------
         score = (ratio - 1.15) * 60 + 50
-        return float(np.clip(score, 0, 100))
+        score = float(np.clip(score, 0, 100))
+
+        return score
 
     except Exception as e:
-        print("⚠️ FFT failed:", e)
+        print("⚠️ FFT failed safely:", e)
         return 50.0
