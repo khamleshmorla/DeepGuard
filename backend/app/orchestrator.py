@@ -1,6 +1,7 @@
 from app.engines.vision_llm import run_vision_llm
 from app.engines.heuristics import image_heuristics, video_heuristics
 from app.engines.cnn import run_cnn
+from app.engines.fft_detector import fft_score
 
 
 def orchestrate_detection(file_path: str, file_type: str) -> dict:
@@ -10,9 +11,12 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
     Combines:
     - Vision LLM (semantic reasoning)
     - CNN (statistical evidence)
+    - FFT (frequency-domain, OBSERVATION ONLY)
     - Heuristics (deterministic checks)
 
-    Returns Lovable-compatible forensic response.
+    FFT Phase 1:
+    - FFT is logged
+    - FFT does NOT affect verdict or confidence
     """
 
     # -----------------------------
@@ -52,7 +56,17 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
         }
 
     # -----------------------------
-    # 4️⃣ Signal Fusion (Lovable-style)
+    # 4️⃣ FFT (PHASE 1 — LOG ONLY)
+    # -----------------------------
+    if file_type == "image":
+        fft = fft_score(file_path)
+    else:
+        fft = 50
+
+    print(f"📊 FFT anomaly score: {fft:.1f}")
+
+    # -----------------------------
+    # 5️⃣ Signal Fusion (NO FFT YET)
     # -----------------------------
     facial = (
         cnn["face"] * 0.6 +
@@ -81,12 +95,12 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
     }
 
     # -----------------------------
-    # 5️⃣ Confidence Calculation
+    # 6️⃣ Confidence Calculation
     # -----------------------------
     confidence = int(sum(merged_details.values()) / 4)
 
     # -----------------------------
-    # 6️⃣ Calibration (reduce false FAKE)
+    # 7️⃣ Calibration (PRE-FFT)
     # -----------------------------
     natural_markers = 0
 
@@ -97,16 +111,14 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
     if merged_details["metadataAnalysis"] < 40:
         natural_markers += 1
 
-    # Hard veto (strong evidence)
+    # Hard veto (CNN / artifact only)
     if merged_details["artifactDetection"] >= 80 or cnn["fake"] >= 80:
         verdict = "FAKE"
         confidence = max(confidence, 80)
 
-    # Normal decision
     elif confidence >= 65:
         verdict = "FAKE"
 
-    # Real boost gate
     elif natural_markers >= 2:
         verdict = "REAL"
         confidence = min(confidence + 10, 95)
@@ -115,7 +127,7 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
         verdict = "REAL"
 
     # -----------------------------
-    # 7️⃣ Final Response
+    # 8️⃣ Final Response
     # -----------------------------
     return {
         "verdict": verdict,
@@ -123,6 +135,7 @@ def orchestrate_detection(file_path: str, file_type: str) -> dict:
         "details": merged_details,
         "engine": {
             "primary": "cnn+vision-llm",
-            "secondary": "heuristics"
+            "secondary": "heuristics",
+            "fft_debug": round(fft, 1)   # TEMPORARY (Phase 1 only)
         }
     }
