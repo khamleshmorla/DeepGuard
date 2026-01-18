@@ -11,12 +11,19 @@ def orchestrate_detection(
     original_path: str
 ) -> dict:
     """
-    DeepGuard forensic orchestration (FFT + EXIF calibrated).
+    DeepGuard forensic orchestration (production-grade).
+
+    Signal hierarchy (IMPORTANT):
+    1. EXIF  → provenance (highest trust for REAL)
+    2. FFT   → physics-based GAN artifacts
+    3. CNN   → statistical patterns (NO hard veto)
+    4. LLM   → semantic reasoning
+    5. Heuristics → support only
     """
 
-    # -----------------------------
-    # 1️⃣ Vision LLM
-    # -----------------------------
+    # -------------------------------------------------
+    # 1️⃣ Vision LLM (semantic reasoning)
+    # -------------------------------------------------
     llm_result = run_vision_llm(file_path, file_type)
     llm = llm_result.get("signals", {
         "facialAnalysis": 50,
@@ -25,40 +32,70 @@ def orchestrate_detection(
         "metadataAnalysis": 50,
     })
 
-    # -----------------------------
+    # -------------------------------------------------
     # 2️⃣ Heuristics
-    # -----------------------------
-    heur = image_heuristics(file_path) if file_type == "image" else video_heuristics(file_path)
+    # -------------------------------------------------
+    heur = (
+        image_heuristics(file_path)
+        if file_type == "image"
+        else video_heuristics(file_path)
+    )
 
-    # -----------------------------
-    # 3️⃣ CNN
-    # -----------------------------
-    cnn = run_cnn(file_path) if file_type == "image" else {
-        "face": 50, "texture": 50, "artifact": 50, "fake": 50
-    }
+    # -------------------------------------------------
+    # 3️⃣ CNN (support signal only)
+    # -------------------------------------------------
+    cnn = (
+        run_cnn(file_path)
+        if file_type == "image"
+        else {
+            "face": 50,
+            "texture": 50,
+            "artifact": 50,
+            "fake": 50,
+        }
+    )
 
-    # -----------------------------
-    # 4️⃣ FFT
-    # -----------------------------
+    # -------------------------------------------------
+    # 4️⃣ FFT (frequency-domain)
+    # -------------------------------------------------
     fft = fft_score(file_path) if file_type == "image" else 50
 
-    # -----------------------------
+    # -------------------------------------------------
     # 5️⃣ EXIF (ORIGINAL FILE ONLY)
-    # -----------------------------
-    exif = extract_exif_authenticity(original_path) if file_type == "image" else {
-        "authenticity_score": 0
-    }
+    # -------------------------------------------------
+    exif = (
+        extract_exif_authenticity(original_path)
+        if file_type == "image"
+        else {"authenticity_score": 0}
+    )
 
+    # -------------------------------------------------
+    # DEBUG LOGS (VERY IMPORTANT)
+    # -------------------------------------------------
     print(f"📊 FFT score: {fft:.1f}")
     print(f"🧠 CNN fake: {cnn['fake']:.1f}")
     print(f"📸 EXIF authenticity score: {exif['authenticity_score']}")
 
-    # -----------------------------
-    # 6️⃣ Signal Fusion
-    # -----------------------------
-    facial = cnn["face"] * 0.6 + llm["facialAnalysis"] * 0.25 + heur["facialAnalysis"] * 0.15
-    artifact = max(cnn["artifact"], llm["artifactDetection"], heur["artifactDetection"])
-    temporal = llm["temporalConsistency"] * 0.6 + heur["temporalConsistency"] * 0.4
+    # -------------------------------------------------
+    # 6️⃣ Signal Fusion (scores only, no verdict yet)
+    # -------------------------------------------------
+    facial = (
+        cnn["face"] * 0.6 +
+        llm["facialAnalysis"] * 0.25 +
+        heur["facialAnalysis"] * 0.15
+    )
+
+    artifact = max(
+        cnn["artifact"],
+        llm["artifactDetection"],
+        heur["artifactDetection"]
+    )
+
+    temporal = (
+        llm["temporalConsistency"] * 0.6 +
+        heur["temporalConsistency"] * 0.4
+    )
+
     metadata = heur["metadataAnalysis"]
 
     merged = {
@@ -68,25 +105,40 @@ def orchestrate_detection(
         "metadataAnalysis": int(round(metadata)),
     }
 
-    confidence = int(sum(merged.values()) / 4)
+    base_confidence = int(sum(merged.values()) / 4)
 
-    # -----------------------------
-    # 7️⃣ FINAL CALIBRATION
-    # -----------------------------
-    if artifact >= 85 or cnn["fake"] >= 85:
-        verdict = "FAKE"
-        confidence = max(confidence, 85)
+    # -------------------------------------------------
+    # 7️⃣ FINAL DECISION LOGIC (FIXED)
+    # -------------------------------------------------
 
-    elif exif["authenticity_score"] >= 70 and fft < 40:
+    # ✅ STRONG REAL OVERRIDE (PHONE CAMERA)
+    if exif["authenticity_score"] >= 70 and fft < 40:
         verdict = "REAL"
-        confidence = min(confidence + 20, 95)
+        confidence = max(85, min(base_confidence + 20, 95))
 
-    elif confidence >= 65:
+    # ❌ STRONG FAKE (GAN FREQUENCY SIGNATURE)
+    elif fft >= 80:
         verdict = "FAKE"
+        confidence = max(base_confidence, 90)
 
+    # ❌ STRONG FAKE (MULTI-SIGNAL)
+    elif artifact >= 85 and fft >= 60:
+        verdict = "FAKE"
+        confidence = max(base_confidence, 85)
+
+    # ⚠️ WEAK FAKE (NO REAL INDICATORS)
+    elif base_confidence >= 65:
+        verdict = "FAKE"
+        confidence = base_confidence
+
+    # ✅ DEFAULT REAL
     else:
         verdict = "REAL"
+        confidence = base_confidence
 
+    # -------------------------------------------------
+    # 8️⃣ FINAL RESPONSE
+    # -------------------------------------------------
     return {
         "verdict": verdict,
         "confidence": confidence,
