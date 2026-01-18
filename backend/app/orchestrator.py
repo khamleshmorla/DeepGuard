@@ -13,11 +13,11 @@ def orchestrate_detection(
     """
     DeepGuard forensic orchestration (production-grade).
 
-    Signal hierarchy (IMPORTANT):
+    Signal trust hierarchy:
     1. EXIF  → provenance (highest trust for REAL)
     2. FFT   → physics-based GAN artifacts
-    3. CNN   → statistical patterns (NO hard veto)
-    4. LLM   → semantic reasoning
+    3. CNN   → statistical patterns (support only, no hard veto)
+    4. Vision LLM → semantic reasoning
     5. Heuristics → support only
     """
 
@@ -56,7 +56,7 @@ def orchestrate_detection(
     )
 
     # -------------------------------------------------
-    # 4️⃣ FFT (frequency-domain)
+    # 4️⃣ FFT (frequency-domain analysis)
     # -------------------------------------------------
     fft = fft_score(file_path) if file_type == "image" else 50
 
@@ -70,14 +70,14 @@ def orchestrate_detection(
     )
 
     # -------------------------------------------------
-    # DEBUG LOGS (VERY IMPORTANT)
+    # DEBUG LOGS (keep during calibration phase)
     # -------------------------------------------------
     print(f"📊 FFT score: {fft:.1f}")
     print(f"🧠 CNN fake: {cnn['fake']:.1f}")
     print(f"📸 EXIF authenticity score: {exif['authenticity_score']}")
 
     # -------------------------------------------------
-    # 6️⃣ Signal Fusion (scores only, no verdict yet)
+    # 6️⃣ Signal Fusion (scores only — no verdict yet)
     # -------------------------------------------------
     facial = (
         cnn["face"] * 0.6 +
@@ -108,25 +108,30 @@ def orchestrate_detection(
     base_confidence = int(sum(merged.values()) / 4)
 
     # -------------------------------------------------
-    # 7️⃣ FINAL DECISION LOGIC (FIXED)
+    # 7️⃣ FINAL DECISION LOGIC (CORRECT & CALIBRATED)
     # -------------------------------------------------
 
-    # ✅ STRONG REAL OVERRIDE (PHONE CAMERA)
+    # ✅ STRONG REAL (camera original, full EXIF)
     if exif["authenticity_score"] >= 70 and fft < 40:
         verdict = "REAL"
         confidence = max(85, min(base_confidence + 20, 95))
 
-    # ❌ STRONG FAKE (GAN FREQUENCY SIGNATURE)
+    # ✅ LIKELY REAL (phone photos / exported images)
+    elif exif["authenticity_score"] >= 45 and fft < 35:
+        verdict = "REAL"
+        confidence = max(80, min(base_confidence + 10, 90))
+
+    # ❌ STRONG FAKE (GAN frequency signature)
     elif fft >= 80:
         verdict = "FAKE"
         confidence = max(base_confidence, 90)
 
-    # ❌ STRONG FAKE (MULTI-SIGNAL)
+    # ❌ STRONG FAKE (multi-signal agreement)
     elif artifact >= 85 and fft >= 60:
         verdict = "FAKE"
         confidence = max(base_confidence, 85)
 
-    # ⚠️ WEAK FAKE (NO REAL INDICATORS)
+    # ⚠️ WEAK FAKE (no REAL indicators present)
     elif base_confidence >= 65:
         verdict = "FAKE"
         confidence = base_confidence
