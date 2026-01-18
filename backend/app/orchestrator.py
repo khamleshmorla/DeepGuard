@@ -4,6 +4,12 @@ from app.engines.cnn import run_cnn
 from app.engines.fft_detector import fft_score
 from app.engines.exif_detector import extract_exif_authenticity
 
+# NEW (VIDEO)
+from app.engines.video_frames import extract_video_frames
+from app.engines.video_analyzer import analyze_video_frames
+
+import os
+
 
 def orchestrate_detection(
     file_path: str,
@@ -13,13 +19,75 @@ def orchestrate_detection(
     """
     DeepGuard forensic orchestration (production-grade).
 
-    Signal trust hierarchy:
-    1. EXIF  → provenance (camera authenticity)
-    2. FFT   → physics-based GAN artifacts
-    3. CNN   → statistical patterns (support only, never hard veto)
-    4. Vision LLM → semantic reasoning
-    5. Heuristics → support only
+    IMAGE TRUST HIERARCHY:
+    1. EXIF  → provenance
+    2. FFT   → physics (GAN artifacts)
+    3. CNN   → statistical patterns (support only)
+    4. LLM   → semantic reasoning
+    5. Heuristics → support
+
+    VIDEO TRUST HIERARCHY:
+    1. Watermarks / overlays
+    2. Frame-level CNN aggregation
+    3. Frame-level FFT aggregation
     """
+
+    # =================================================
+    # 🎥 VIDEO PIPELINE (PHASE 4 — REAL ANALYSIS)
+    # =================================================
+    if file_type == "video":
+        frame_paths = extract_video_frames(file_path)
+        video_stats = analyze_video_frames(frame_paths)
+
+        # Cleanup extracted frames
+        for p in frame_paths:
+            if os.path.exists(p):
+                os.remove(p)
+
+        print("🎥 VIDEO ANALYSIS:", video_stats)
+
+        # -----------------------------
+        # VIDEO DECISION LOGIC
+        # -----------------------------
+        # Strong fake: visible watermark
+        if video_stats["watermark_hits"] > 0:
+            verdict = "FAKE"
+            confidence = 95
+
+        # Strong fake: CNN screams fake on any frame
+        elif video_stats["cnn_max"] >= 80:
+            verdict = "FAKE"
+            confidence = int(video_stats["cnn_max"])
+
+        # Strong fake: frequency artifacts across frames
+        elif video_stats["fft_avg"] >= 65:
+            verdict = "FAKE"
+            confidence = 90
+
+        # Otherwise uncertain → default REAL with caution
+        else:
+            verdict = "REAL"
+            confidence = 70
+
+        return {
+            "verdict": verdict,
+            "confidence": confidence,
+            "details": {
+                "facialAnalysis": int(video_stats["cnn_avg"]),
+                "artifactDetection": int(video_stats["artifact_avg"]),
+                "temporalConsistency": 60,
+                "metadataAnalysis": 0,
+            },
+            "engine": {
+                "primary": "video-cnn+fft+watermark",
+                "secondary": "frame-aggregation",
+                "video_debug": video_stats,
+            }
+        }
+
+    # =================================================
+    # 🖼️ IMAGE PIPELINE (LOCKED & CALIBRATED)
+    # =================================================
 
     # -------------------------------------------------
     # 1️⃣ Vision LLM
@@ -35,39 +103,22 @@ def orchestrate_detection(
     # -------------------------------------------------
     # 2️⃣ Heuristics
     # -------------------------------------------------
-    heur = (
-        image_heuristics(file_path)
-        if file_type == "image"
-        else video_heuristics(file_path)
-    )
+    heur = image_heuristics(file_path)
 
     # -------------------------------------------------
     # 3️⃣ CNN (support signal only)
     # -------------------------------------------------
-    cnn = (
-        run_cnn(file_path)
-        if file_type == "image"
-        else {
-            "face": 50,
-            "texture": 50,
-            "artifact": 50,
-            "fake": 50,
-        }
-    )
+    cnn = run_cnn(file_path)
 
     # -------------------------------------------------
-    # 4️⃣ FFT (frequency-domain)
+    # 4️⃣ FFT
     # -------------------------------------------------
-    fft = fft_score(file_path) if file_type == "image" else 50
+    fft = fft_score(file_path)
 
     # -------------------------------------------------
     # 5️⃣ EXIF (ORIGINAL FILE ONLY)
     # -------------------------------------------------
-    exif = (
-        extract_exif_authenticity(original_path)
-        if file_type == "image"
-        else {"authenticity_score": 0}
-    )
+    exif = extract_exif_authenticity(original_path)
 
     # -------------------------------------------------
     # DEBUG LOGS
@@ -108,7 +159,7 @@ def orchestrate_detection(
     base_confidence = int(sum(merged.values()) / 4)
 
     # -------------------------------------------------
-    # 7️⃣ FINAL DECISION LOGIC (LOCKED & SAFE)
+    # 7️⃣ FINAL IMAGE DECISION LOGIC (LOCKED)
     # -------------------------------------------------
 
     # ✅ STRONG REAL — camera originals
@@ -121,7 +172,7 @@ def orchestrate_detection(
         verdict = "REAL"
         confidence = max(80, min(base_confidence + 10, 90))
 
-    # ✅ REAL — screenshots / UI images (BUT CNN must not scream FAKE)
+    # ✅ REAL — screenshots / UI images
     elif fft < 30 and cnn["fake"] < 85:
         verdict = "REAL"
         confidence = max(75, min(base_confidence, 85))
@@ -136,7 +187,7 @@ def orchestrate_detection(
         verdict = "FAKE"
         confidence = max(base_confidence, 85)
 
-    # ⚠️ WEAK FAKE — no REAL indicators
+    # ⚠️ WEAK FAKE
     elif base_confidence >= 65:
         verdict = "FAKE"
         confidence = base_confidence
@@ -147,7 +198,7 @@ def orchestrate_detection(
         confidence = base_confidence
 
     # -------------------------------------------------
-    # 8️⃣ FINAL RESPONSE
+    # 8️⃣ FINAL IMAGE RESPONSE
     # -------------------------------------------------
     return {
         "verdict": verdict,
