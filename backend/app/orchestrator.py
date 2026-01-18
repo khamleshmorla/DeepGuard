@@ -16,7 +16,7 @@ def orchestrate_detection(
     Signal trust hierarchy:
     1. EXIF  → provenance (camera authenticity)
     2. FFT   → physics-based GAN artifacts
-    3. CNN   → statistical patterns (support only)
+    3. CNN   → statistical patterns (support only, never hard veto)
     4. Vision LLM → semantic reasoning
     5. Heuristics → support only
     """
@@ -70,7 +70,7 @@ def orchestrate_detection(
     )
 
     # -------------------------------------------------
-    # DEBUG LOGS (keep during calibration)
+    # DEBUG LOGS
     # -------------------------------------------------
     print(f"📊 FFT score: {fft:.1f}")
     print(f"🧠 CNN fake: {cnn['fake']:.1f}")
@@ -108,35 +108,35 @@ def orchestrate_detection(
     base_confidence = int(sum(merged.values()) / 4)
 
     # -------------------------------------------------
-    # 7️⃣ FINAL DECISION LOGIC (COMPLETE & CORRECT)
+    # 7️⃣ FINAL DECISION LOGIC (LOCKED & SAFE)
     # -------------------------------------------------
 
-    # ✅ STRONG REAL (camera original)
+    # ✅ STRONG REAL — camera originals
     if exif["authenticity_score"] >= 70 and fft < 40:
         verdict = "REAL"
         confidence = max(85, min(base_confidence + 20, 95))
 
-    # ✅ LIKELY REAL (phone photos / exported images)
+    # ✅ LIKELY REAL — phone photos / exports
     elif exif["authenticity_score"] >= 45 and fft < 35:
         verdict = "REAL"
         confidence = max(80, min(base_confidence + 10, 90))
 
-    # ✅ REAL (screenshots / non-camera images)
-    elif fft < 30:
+    # ✅ REAL — screenshots / UI images (BUT CNN must not scream FAKE)
+    elif fft < 30 and cnn["fake"] < 85:
         verdict = "REAL"
         confidence = max(75, min(base_confidence, 85))
 
-    # ❌ STRONG FAKE (GAN frequency signature)
+    # ❌ STRONG FAKE — GAN frequency signature
     elif fft >= 80:
         verdict = "FAKE"
         confidence = max(base_confidence, 90)
 
-    # ❌ STRONG FAKE (multi-signal agreement)
+    # ❌ STRONG FAKE — multi-signal agreement
     elif artifact >= 85 and fft >= 60:
         verdict = "FAKE"
         confidence = max(base_confidence, 85)
 
-    # ⚠️ WEAK FAKE (no REAL indicators present)
+    # ⚠️ WEAK FAKE — no REAL indicators
     elif base_confidence >= 65:
         verdict = "FAKE"
         confidence = base_confidence
