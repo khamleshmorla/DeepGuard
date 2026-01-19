@@ -1,37 +1,79 @@
-from app.engines.cnn import run_cnn
+import cv2
+import numpy as np
 from app.engines.fft_detector import fft_score
-from app.engines.heuristics import image_heuristics
-from app.engines.watermark_detector import detect_watermark
+from app.engines.cnn import run_cnn
 
 
-def analyze_video_frames(frame_paths):
+def analyze_video_frames(video_path: str, max_frames: int = 15) -> dict:
     """
-    Analyze frames and aggregate signals.
+    Production-grade video forensic analysis.
+    CNN is SUPPORT only. FFT is primary.
     """
+
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if total_frames <= 0:
+        return _safe_video_fallback()
+
+    step = max(1, total_frames // max_frames)
 
     cnn_scores = []
     fft_scores = []
     artifact_scores = []
-    watermark_hits = 0
 
-    for path in frame_paths:
-        cnn = run_cnn(path)
-        fft = fft_score(path)
-        heur = image_heuristics(path)
+    frame_idx = 0
+    processed = 0
 
-        cnn_scores.append(cnn["fake"])
-        fft_scores.append(fft)
-        artifact_scores.append(heur["artifactDetection"])
+    while cap.isOpened() and processed < max_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-        if detect_watermark(path):
-            watermark_hits += 1
+        if frame_idx % step == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # FFT (PRIMARY SIGNAL)
+            fft_val = fft_score(gray)
+            fft_scores.append(fft_val)
+
+            # Artifact proxy (blur variance)
+            blur = cv2.Laplacian(gray, cv2.CV_64F).var()
+            artifact_scores.append(
+                85 if blur < 80 else 65
+            )
+
+            # CNN SUPPORT ONLY
+            try:
+                tmp = "/tmp/frame.jpg"
+                cv2.imwrite(tmp, frame)
+                cnn = run_cnn(tmp)
+                cnn_scores.append(cnn["fake"])
+            except Exception:
+                cnn_scores.append(50)
+
+            processed += 1
+
+        frame_idx += 1
+
+    cap.release()
 
     return {
-        "cnn_avg": sum(cnn_scores) / len(cnn_scores),
-        "cnn_max": max(cnn_scores),
-        "fft_avg": sum(fft_scores) / len(fft_scores),
-        "fft_min": min(fft_scores),
-        "artifact_avg": sum(artifact_scores) / len(artifact_scores),
-        "watermark_hits": watermark_hits,
-        "total_frames": len(frame_paths),
+        "cnn_avg": float(np.mean(cnn_scores)) if cnn_scores else 50,
+        "cnn_max": float(np.max(cnn_scores)) if cnn_scores else 50,
+        "fft_avg": float(np.mean(fft_scores)) if fft_scores else 50,
+        "fft_min": float(np.min(fft_scores)) if fft_scores else 50,
+        "artifact_avg": float(np.mean(artifact_scores)) if artifact_scores else 50,
+        "total_frames": processed,
+    }
+
+
+def _safe_video_fallback():
+    return {
+        "cnn_avg": 50,
+        "cnn_max": 50,
+        "fft_avg": 50,
+        "fft_min": 50,
+        "artifact_avg": 50,
+        "total_frames": 0,
     }

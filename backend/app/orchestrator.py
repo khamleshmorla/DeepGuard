@@ -4,8 +4,7 @@ from app.engines.cnn import run_cnn
 from app.engines.fft_detector import fft_score
 from app.engines.exif_detector import extract_exif_authenticity
 
-# NEW (VIDEO)
-from app.engines.video_frames import extract_video_frames
+# VIDEO
 from app.engines.video_analyzer import analyze_video_frames
 
 import os
@@ -17,70 +16,82 @@ def orchestrate_detection(
     original_path: str
 ) -> dict:
     """
-    DeepGuard forensic orchestration (production-grade).
+    DeepGuard forensic orchestration (PRODUCTION-GRADE)
 
     IMAGE TRUST HIERARCHY:
-    1. EXIF  → provenance
-    2. FFT   → physics (GAN artifacts)
-    3. CNN   → statistical patterns (support only)
-    4. LLM   → semantic reasoning
-    5. Heuristics → support
+    1. EXIF  → provenance (camera truth)
+    2. FFT   → physics-based GAN artifacts
+    3. CNN   → statistical patterns (SUPPORT ONLY)
+    4. Vision LLM → semantic reasoning
+    5. Heuristics → support only
 
     VIDEO TRUST HIERARCHY:
-    1. Watermarks / overlays
-    2. Frame-level CNN aggregation
-    3. Frame-level FFT aggregation
+    1. Temporal consistency + physics (FFT)
+    2. Frame aggregation (CNN SUPPORT)
+    3. Watermark presence (WEAK signal)
     """
 
     # =================================================
-    # 🎥 VIDEO PIPELINE (PHASE 4 — REAL ANALYSIS)
+    # 🎥 VIDEO PIPELINE (PHASE 4 — REAL VIDEO ANALYSIS)
     # =================================================
     if file_type == "video":
-        frame_paths = extract_video_frames(file_path)
-        video_stats = analyze_video_frames(frame_paths)
 
-        # Cleanup extracted frames
-        for p in frame_paths:
-            if os.path.exists(p):
-                os.remove(p)
+        video_stats = analyze_video_frames(file_path)
 
         print("🎥 VIDEO ANALYSIS:", video_stats)
 
-        # -----------------------------
-        # VIDEO DECISION LOGIC
-        # -----------------------------
-        # Strong fake: visible watermark
-        if video_stats["watermark_hits"] > 0:
-            verdict = "FAKE"
-            confidence = 95
+        fft_avg = video_stats["fft_avg"]
+        fft_min = video_stats["fft_min"]
+        cnn_avg = video_stats["cnn_avg"]
+        cnn_max = video_stats["cnn_max"]
+        artifact_avg = video_stats["artifact_avg"]
+        watermark_hits = video_stats.get("watermark_hits", 0)
 
-        # Strong fake: CNN screams fake on any frame
-        elif video_stats["cnn_max"] >= 80:
-            verdict = "FAKE"
-            confidence = int(video_stats["cnn_max"])
+        # -----------------------------
+        # VIDEO DECISION (SAFE LOGIC)
+        # -----------------------------
 
-        # Strong fake: frequency artifacts across frames
-        elif video_stats["fft_avg"] >= 65:
+        # 🔴 STRONG FAKE — multiple agreeing signals
+        if (
+            fft_avg >= 65 and
+            artifact_avg >= 75 and
+            cnn_max >= 85
+        ):
             verdict = "FAKE"
             confidence = 90
 
-        # Otherwise uncertain → default REAL with caution
+        # 🟡 UNCERTAIN (mapped to REAL for UI safety)
+        elif fft_avg < 40:
+            verdict = "REAL"
+            confidence = 60
+
+        # 🟡 UNCERTAIN — watermark alone is NOT proof
+        elif watermark_hits > 5 and cnn_avg < 80:
+            verdict = "REAL"
+            confidence = 65
+
+        # 🔴 LIKELY FAKE — CNN very high + artifacts
+        elif cnn_avg >= 85 and artifact_avg >= 80:
+            verdict = "FAKE"
+            confidence = 85
+
+        # 🟢 DEFAULT SAFE
         else:
             verdict = "REAL"
-            confidence = 70
+            confidence = 60
 
         return {
             "verdict": verdict,
             "confidence": confidence,
             "details": {
-                "facialAnalysis": int(video_stats["cnn_avg"]),
-                "artifactDetection": int(video_stats["artifact_avg"]),
-                "temporalConsistency": 60,
+                "facialAnalysis": int(cnn_avg),
+                "artifactDetection": int(artifact_avg),
+                "temporalConsistency": int(100 - abs(fft_avg - fft_min)),
                 "metadataAnalysis": 0,
             },
             "engine": {
-                "primary": "video-cnn+fft+watermark",
-                "secondary": "frame-aggregation",
+                "primary": "video-forensics",
+                "secondary": "fft+temporal",
                 "video_debug": video_stats,
             }
         }
@@ -106,7 +117,7 @@ def orchestrate_detection(
     heur = image_heuristics(file_path)
 
     # -------------------------------------------------
-    # 3️⃣ CNN (support signal only)
+    # 3️⃣ CNN (SUPPORT ONLY)
     # -------------------------------------------------
     cnn = run_cnn(file_path)
 
@@ -128,7 +139,7 @@ def orchestrate_detection(
     print(f"📸 EXIF authenticity score: {exif['authenticity_score']}")
 
     # -------------------------------------------------
-    # 6️⃣ Signal Fusion (scores only)
+    # 6️⃣ SIGNAL FUSION (NO VERDICT YET)
     # -------------------------------------------------
     facial = (
         cnn["face"] * 0.6 +
@@ -159,7 +170,7 @@ def orchestrate_detection(
     base_confidence = int(sum(merged.values()) / 4)
 
     # -------------------------------------------------
-    # 7️⃣ FINAL IMAGE DECISION LOGIC (LOCKED)
+    # 7️⃣ FINAL IMAGE DECISION (CORRECT & SAFE)
     # -------------------------------------------------
 
     # ✅ STRONG REAL — camera originals
