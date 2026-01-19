@@ -5,77 +5,54 @@ from app.engines.fft_detector import fft_score
 from app.engines.exif_detector import extract_exif_authenticity
 
 # VIDEO
+from app.engines.video_frames import extract_video_frames
 from app.engines.video_analyzer import analyze_video_frames
 
 import os
 
 
-def orchestrate_detection(
-    file_path: str,
-    file_type: str,
-    original_path: str
-) -> dict:
+def orchestrate_detection(file_path: str, file_type: str, original_path: str) -> dict:
     """
-    DeepGuard forensic orchestration (PRODUCTION-GRADE)
+    DeepGuard forensic orchestration — PHASE 4.2 (LOCKED)
 
-    IMAGE TRUST HIERARCHY:
-    1. EXIF  → provenance (camera truth)
-    2. FFT   → physics-based GAN artifacts
-    3. CNN   → statistical patterns (SUPPORT ONLY)
-    4. Vision LLM → semantic reasoning
-    5. Heuristics → support only
-
-    VIDEO TRUST HIERARCHY:
-    1. Temporal consistency + physics (FFT)
-    2. Frame aggregation (CNN SUPPORT)
-    3. Watermark presence (WEAK signal)
+    CORE PRINCIPLE:
+    ❌ CNN NEVER decides alone
+    ✅ Physics (FFT) > Metadata (EXIF) > Temporal stability
     """
 
     # =================================================
-    # 🎥 VIDEO PIPELINE (PHASE 4 — REAL VIDEO ANALYSIS)
+    # 🎥 VIDEO PIPELINE
     # =================================================
     if file_type == "video":
+        frame_paths = extract_video_frames(file_path)
+        stats = analyze_video_frames(frame_paths)
 
-        video_stats = analyze_video_frames(file_path)
+        for p in frame_paths:
+            if os.path.exists(p):
+                os.remove(p)
 
-        print("🎥 VIDEO ANALYSIS:", video_stats)
+        print("🎥 VIDEO ANALYSIS:", stats)
 
-        fft_avg = video_stats["fft_avg"]
-        fft_min = video_stats["fft_min"]
-        cnn_avg = video_stats["cnn_avg"]
-        cnn_max = video_stats["cnn_max"]
-        artifact_avg = video_stats["artifact_avg"]
-        watermark_hits = video_stats.get("watermark_hits", 0)
+        fft_avg = stats["fft_avg"]
+        fft_min = stats["fft_min"]
+        cnn_avg = stats["cnn_avg"]
+        cnn_max = stats["cnn_max"]
 
         # -----------------------------
-        # VIDEO DECISION (SAFE LOGIC)
+        # VIDEO DECISION (SAFE)
         # -----------------------------
 
-        # 🔴 STRONG FAKE — multiple agreeing signals
-        if (
-            fft_avg >= 65 and
-            artifact_avg >= 75 and
-            cnn_max >= 85
-        ):
+        # STRONG FAKE — physics + stats agree
+        if fft_avg >= 65 and cnn_max >= 85:
             verdict = "FAKE"
             confidence = 90
 
-        # 🟡 UNCERTAIN (mapped to REAL for UI safety)
-        elif fft_avg < 40:
+        # STRONG REAL — clean frequency & stable
+        elif fft_avg < 40 and abs(fft_avg - fft_min) < 10:
             verdict = "REAL"
-            confidence = 60
+            confidence = 80
 
-        # 🟡 UNCERTAIN — watermark alone is NOT proof
-        elif watermark_hits > 5 and cnn_avg < 80:
-            verdict = "REAL"
-            confidence = 65
-
-        # 🔴 LIKELY FAKE — CNN very high + artifacts
-        elif cnn_avg >= 85 and artifact_avg >= 80:
-            verdict = "FAKE"
-            confidence = 85
-
-        # 🟢 DEFAULT SAFE
+        # UNCERTAIN → SAFE REAL
         else:
             verdict = "REAL"
             confidence = 60
@@ -85,141 +62,63 @@ def orchestrate_detection(
             "confidence": confidence,
             "details": {
                 "facialAnalysis": int(cnn_avg),
-                "artifactDetection": int(artifact_avg),
+                "artifactDetection": int(stats["artifact_avg"]),
                 "temporalConsistency": int(100 - abs(fft_avg - fft_min)),
                 "metadataAnalysis": 0,
             },
             "engine": {
-                "primary": "video-forensics",
-                "secondary": "fft+temporal",
-                "video_debug": video_stats,
+                "primary": "video-forensics-v2",
+                "secondary": "cnn+fft",
+                "video_debug": stats,
             }
         }
 
     # =================================================
-    # 🖼️ IMAGE PIPELINE (LOCKED & CALIBRATED)
+    # 🖼️ IMAGE PIPELINE (STABLE)
     # =================================================
 
-    # -------------------------------------------------
-    # 1️⃣ Vision LLM
-    # -------------------------------------------------
-    llm_result = run_vision_llm(file_path, file_type)
-    llm = llm_result.get("signals", {
-        "facialAnalysis": 50,
-        "temporalConsistency": 50,
-        "artifactDetection": 50,
-        "metadataAnalysis": 50,
-    })
-
-    # -------------------------------------------------
-    # 2️⃣ Heuristics
-    # -------------------------------------------------
+    llm = run_vision_llm(file_path, file_type).get("signals", {})
     heur = image_heuristics(file_path)
-
-    # -------------------------------------------------
-    # 3️⃣ CNN (SUPPORT ONLY)
-    # -------------------------------------------------
     cnn = run_cnn(file_path)
-
-    # -------------------------------------------------
-    # 4️⃣ FFT
-    # -------------------------------------------------
     fft = fft_score(file_path)
-
-    # -------------------------------------------------
-    # 5️⃣ EXIF (ORIGINAL FILE ONLY)
-    # -------------------------------------------------
     exif = extract_exif_authenticity(original_path)
 
-    # -------------------------------------------------
-    # DEBUG LOGS
-    # -------------------------------------------------
-    print(f"📊 FFT score: {fft:.1f}")
-    print(f"🧠 CNN fake: {cnn['fake']:.1f}")
-    print(f"📸 EXIF authenticity score: {exif['authenticity_score']}")
+    print(f"📊 FFT: {fft:.1f} | 🧠 CNN: {cnn['fake']:.1f} | 📸 EXIF: {exif['authenticity_score']}")
 
-    # -------------------------------------------------
-    # 6️⃣ SIGNAL FUSION (NO VERDICT YET)
-    # -------------------------------------------------
-    facial = (
-        cnn["face"] * 0.6 +
-        llm["facialAnalysis"] * 0.25 +
-        heur["facialAnalysis"] * 0.15
-    )
-
-    artifact = max(
-        cnn["artifact"],
-        llm["artifactDetection"],
-        heur["artifactDetection"]
-    )
-
-    temporal = (
-        llm["temporalConsistency"] * 0.6 +
-        heur["temporalConsistency"] * 0.4
-    )
-
+    facial = cnn["face"] * 0.6 + llm.get("facialAnalysis", 50) * 0.25 + heur["facialAnalysis"] * 0.15
+    artifact = max(cnn["artifact"], llm.get("artifactDetection", 50), heur["artifactDetection"])
+    temporal = llm.get("temporalConsistency", 50)
     metadata = heur["metadataAnalysis"]
 
     merged = {
-        "facialAnalysis": int(round(facial)),
-        "artifactDetection": int(round(artifact)),
-        "temporalConsistency": int(round(temporal)),
-        "metadataAnalysis": int(round(metadata)),
+        "facialAnalysis": int(facial),
+        "artifactDetection": int(artifact),
+        "temporalConsistency": int(temporal),
+        "metadataAnalysis": int(metadata),
     }
 
-    base_confidence = int(sum(merged.values()) / 4)
+    base_conf = sum(merged.values()) // 4
 
-    # -------------------------------------------------
-    # 7️⃣ FINAL IMAGE DECISION (CORRECT & SAFE)
-    # -------------------------------------------------
-
-    # ✅ STRONG REAL — camera originals
-    if exif["authenticity_score"] >= 70 and fft < 40:
+    # IMAGE DECISION
+    if exif["authenticity_score"] >= 60 and fft < 40:
         verdict = "REAL"
-        confidence = max(85, min(base_confidence + 20, 95))
-
-    # ✅ LIKELY REAL — phone photos / exports
-    elif exif["authenticity_score"] >= 45 and fft < 35:
-        verdict = "REAL"
-        confidence = max(80, min(base_confidence + 10, 90))
-
-    # ✅ REAL — screenshots / UI images
-    elif fft < 30 and cnn["fake"] < 85:
-        verdict = "REAL"
-        confidence = max(75, min(base_confidence, 85))
-
-    # ❌ STRONG FAKE — GAN frequency signature
+        confidence = max(85, base_conf)
     elif fft >= 80:
         verdict = "FAKE"
-        confidence = max(base_confidence, 90)
-
-    # ❌ STRONG FAKE — multi-signal agreement
-    elif artifact >= 85 and fft >= 60:
+        confidence = 90
+    elif base_conf >= 65:
         verdict = "FAKE"
-        confidence = max(base_confidence, 85)
-
-    # ⚠️ WEAK FAKE
-    elif base_confidence >= 65:
-        verdict = "FAKE"
-        confidence = base_confidence
-
-    # ✅ DEFAULT REAL
+        confidence = base_conf
     else:
         verdict = "REAL"
-        confidence = base_confidence
+        confidence = base_conf
 
-    # -------------------------------------------------
-    # 8️⃣ FINAL IMAGE RESPONSE
-    # -------------------------------------------------
     return {
         "verdict": verdict,
         "confidence": confidence,
         "details": merged,
         "engine": {
-            "primary": "cnn+vision-llm+fft+exif",
-            "secondary": "heuristics",
-            "fft_debug": round(fft, 1),
-            "cnn_fake": round(cnn["fake"], 1),
-            "exif_debug": exif["authenticity_score"],
+            "primary": "image-forensics-v2",
+            "secondary": "cnn+fft+exif",
         }
     }

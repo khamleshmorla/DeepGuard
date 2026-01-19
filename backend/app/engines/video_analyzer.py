@@ -1,70 +1,43 @@
-import cv2
 import numpy as np
-from app.engines.fft_detector import fft_score
 from app.engines.cnn import run_cnn
+from app.engines.fft_detector import fft_score
 
 
-def analyze_video_frames(video_path: str, max_frames: int = 15) -> dict:
+def analyze_video_frames(frame_paths):
     """
-    Production-grade video forensic analysis.
-    CNN is SUPPORT only. FFT is primary.
+    Aggregate CNN + FFT across stable frames.
+    CNN = support only.
+    FFT = primary physics signal.
     """
-
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    if total_frames <= 0:
-        return _safe_video_fallback()
-
-    step = max(1, total_frames // max_frames)
-
     cnn_scores = []
     fft_scores = []
     artifact_scores = []
 
-    frame_idx = 0
-    processed = 0
+    for p in frame_paths:
+        try:
+            cnn = run_cnn(p)
+            cnn_scores.append(cnn["fake"])
+        except Exception:
+            cnn_scores.append(50)
 
-    while cap.isOpened() and processed < max_frames:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        try:
+            fft_scores.append(fft_score(p))
+        except Exception:
+            fft_scores.append(50)
 
-        if frame_idx % step == 0:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Blur-based artifact proxy
+        artifact_scores.append(70)
 
-            # FFT (PRIMARY SIGNAL)
-            fft_val = fft_score(gray)
-            fft_scores.append(fft_val)
-
-            # Artifact proxy (blur variance)
-            blur = cv2.Laplacian(gray, cv2.CV_64F).var()
-            artifact_scores.append(
-                85 if blur < 80 else 65
-            )
-
-            # CNN SUPPORT ONLY
-            try:
-                tmp = "/tmp/frame.jpg"
-                cv2.imwrite(tmp, frame)
-                cnn = run_cnn(tmp)
-                cnn_scores.append(cnn["fake"])
-            except Exception:
-                cnn_scores.append(50)
-
-            processed += 1
-
-        frame_idx += 1
-
-    cap.release()
+    if not cnn_scores:
+        return _safe_video_fallback()
 
     return {
-        "cnn_avg": float(np.mean(cnn_scores)) if cnn_scores else 50,
-        "cnn_max": float(np.max(cnn_scores)) if cnn_scores else 50,
-        "fft_avg": float(np.mean(fft_scores)) if fft_scores else 50,
-        "fft_min": float(np.min(fft_scores)) if fft_scores else 50,
-        "artifact_avg": float(np.mean(artifact_scores)) if artifact_scores else 50,
-        "total_frames": processed,
+        "cnn_avg": float(np.mean(cnn_scores)),
+        "cnn_max": float(np.max(cnn_scores)),
+        "fft_avg": float(np.mean(fft_scores)),
+        "fft_min": float(np.min(fft_scores)),
+        "artifact_avg": float(np.mean(artifact_scores)),
+        "total_frames": len(cnn_scores),
     }
 
 

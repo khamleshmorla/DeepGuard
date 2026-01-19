@@ -9,21 +9,18 @@ def extract_video_frames(
     interval_sec: float = 1.0
 ):
     """
-    Extract frames from video at fixed time intervals.
-    Returns list of image file paths.
+    Extract stable frames from video at fixed time intervals.
+    Skips overly blurry frames.
     """
-
     cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
-    if fps <= 0:
-        fps = 25  # fallback
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25
 
     frame_interval = int(fps * interval_sec)
     frames = []
 
     count = 0
     saved = 0
+    tmp_dir = tempfile.mkdtemp()
 
     while cap.isOpened() and saved < max_frames:
         ret, frame = cap.read()
@@ -31,9 +28,17 @@ def extract_video_frames(
             break
 
         if count % frame_interval == 0:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            cv2.imwrite(tmp.name, frame)
-            frames.append(tmp.name)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blur = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+            # Skip extremely blurry frames
+            if blur < 50:
+                count += 1
+                continue
+
+            path = os.path.join(tmp_dir, f"frame_{saved}.jpg")
+            cv2.imwrite(path, frame)
+            frames.append(path)
             saved += 1
 
         count += 1
