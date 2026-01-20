@@ -8,7 +8,44 @@ from app.engines.exif_detector import extract_exif_authenticity
 from app.engines.video_frames import extract_video_frames
 from app.engines.video_analyzer import analyze_video_frames
 
-import os
+
+# -------------------------------------------------
+# 🔧 CNN CALIBRATION ENGINE
+# -------------------------------------------------
+def calibrate_cnn_score(cnn_fake: float, fft: float, exif_score: int) -> float:
+    """
+    Adjust CNN fake score based on physics (FFT) and metadata (EXIF).
+    Prevents CNN from overconfidently flagging real photos.
+    """
+    calibrated = cnn_fake
+    
+    # Rule 1: FFT says REAL, but CNN says FAKE → reduce CNN
+    if fft < 40 and cnn_fake > 85:
+        # Strong physics signal contradicts CNN
+        reduction_factor = 0.70  # Reduce by 30%
+        calibrated = cnn_fake * reduction_factor
+        print(f"⚠️  CNN Calibration: FFT real signal detected. {cnn_fake:.1f} → {calibrated:.1f}")
+    
+    # Rule 2: FFT says REAL + EXIF has metadata → even more reduction
+    elif fft < 35 and exif_score >= 30 and cnn_fake > 80:
+        reduction_factor = 0.65  # Reduce by 35%
+        calibrated = cnn_fake * reduction_factor
+        print(f"⚠️  CNN Calibration: Real camera signals (FFT + EXIF). {cnn_fake:.1f} → {calibrated:.1f}")
+    
+    # Rule 3: Very low FFT (natural compression) + moderate EXIF
+    elif fft < 30 and exif_score >= 20 and cnn_fake > 75:
+        reduction_factor = 0.60  # Reduce by 40%
+        calibrated = cnn_fake * reduction_factor
+        print(f"⚠️  CNN Calibration: Strong real camera pattern. {cnn_fake:.1f} → {calibrated:.1f}")
+    
+    # Rule 4: FFT shows FAKE pattern, support CNN
+    elif fft >= 70 and cnn_fake > 75:
+        # FFT and CNN agree → boost CNN confidence slightly
+        boost_factor = 1.05  # Boost by 5%
+        calibrated = min(cnn_fake * boost_factor, 98)
+        print(f"✅ CNN Calibration: FFT fake signal confirms CNN. {cnn_fake:.1f} → {calibrated:.1f}")
+    
+    return calibrated
 
 
 # -------------------------------------------------
@@ -35,14 +72,14 @@ def signal_context(fft, exif_score, artifact):
 
 def cnn_weight(context):
     """
-    Dynamic CNN influence.
+    Dynamic CNN influence - REDUCED for unreliable CNN
     """
     if context == "REAL_STRONG":
-        return 0.15   # CNN almost ignored
+        return 0.10   # Reduced from 0.15 (trust physics more)
     elif context == "FAKE_STRONG":
-        return 0.45   # CNN trusted more
+        return 0.35   # Reduced from 0.45 (less reliant on CNN)
     else:
-        return 0.30   # balanced
+        return 0.20   # Reduced from 0.30 (more balanced toward FFT/EXIF)
 
 
 # =================================================
@@ -50,11 +87,12 @@ def cnn_weight(context):
 # =================================================
 def orchestrate_detection(file_path: str, file_type: str, original_path: str) -> dict:
     """
-    DeepGuard forensic orchestration — PHASE 4.2 (LOCKED)
+    DeepGuard forensic orchestration — PHASE 4.3 (CNN CALIBRATED)
 
     CORE RULE:
     ❌ CNN NEVER decides alone
     ✅ Physics (FFT) + Metadata (EXIF) define truth
+    ✅ CNN calibrated against physics signals
     """
 
     # =================================================
@@ -66,8 +104,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
         stats = analyze_video_frames(frame_paths)
 
         for p in frame_paths:
-            if os.path.exists(p):
-                os.remove(p)
+            pass
 
         print("🎥 VIDEO ANALYSIS:", stats)
 
@@ -78,7 +115,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
         artifact_avg = stats["artifact_avg"]
 
         # -----------------------------
-        # VIDEO DECISION (SAFE)
+        # VIDEO DECISION (MULTI-SIGNAL VOTING)
         # -----------------------------
 
         # Count how many signals indicate FAKE
@@ -102,7 +139,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
 
         # Signal 4: Temporal consistency (check if frames vary too much)
         temporal_variance = abs(fft_avg - fft_min)
-        if temporal_variance > 15:  # Big jumps between frames = suspicious
+        if temporal_variance > 15:
             fake_signals += 1
             signal_scores.append(("Temporal", temporal_variance))
 
@@ -143,8 +180,9 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
             }
         }
 
+
     # =================================================
-    # 🖼️ IMAGE PIPELINE (DYNAMIC CNN CONTROL)
+    # 🖼️ IMAGE PIPELINE (CALIBRATED CNN)
     # =================================================
 
     llm = run_vision_llm(file_path, file_type).get("signals", {
@@ -159,9 +197,16 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     fft = fft_score(file_path)
     exif = extract_exif_authenticity(original_path)
 
+    # 🔧 CNN CALIBRATION: Apply physics-based adjustment
+    cnn["fake"] = calibrate_cnn_score(
+        cnn_fake=cnn["fake"],
+        fft=fft,
+        exif_score=exif["authenticity_score"]
+    )
+
     print(
         f"📊 FFT: {fft:.1f} | "
-        f"🧠 CNN: {cnn['fake']:.1f} | "
+        f"🧠 CNN: {cnn['fake']:.1f} (calibrated) | "
         f"📸 EXIF: {exif['authenticity_score']}"
     )
 
@@ -214,7 +259,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     base_confidence = int(sum(merged.values()) / 4)
 
     # -------------------------------------------------
-    # FINAL IMAGE DECISION (CNN NEVER OVERRIDES)
+    # FINAL IMAGE DECISION (CALIBRATED CNN)
     # -------------------------------------------------
     
     # ✅ SMART CNN OVERRIDE: CNN is confident AND other signals agree
@@ -267,12 +312,12 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
         "details": merged,
         "engine": {
             "primary": "image-forensics-v3",
-            "secondary": "fft+exif+adaptive-cnn",
+            "secondary": "fft+exif+calibrated-cnn",
             "debug": {
                 "context": context,
                 "cnn_weight": cnn_w,
                 "fft": round(fft, 1),
-                "cnn_fake": round(cnn["fake"], 1),
+                "cnn_fake_calibrated": round(cnn["fake"], 1),
                 "exif": exif["authenticity_score"],
                 "cnn_override_applied": cnn["fake"] >= 90,
             }
