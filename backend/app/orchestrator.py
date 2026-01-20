@@ -81,20 +81,47 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
         # VIDEO DECISION (SAFE)
         # -----------------------------
 
-        # 🔴 STRONG FAKE — physics + stats agree
-        if fft_avg >= 65 and artifact_avg >= 80 and cnn_max >= 85:
+        # Count how many signals indicate FAKE
+        fake_signals = 0
+        signal_scores = []
+
+        # Signal 1: CNN confidence
+        if cnn_max >= 75:
+            fake_signals += 1
+            signal_scores.append(("CNN", cnn_max))
+
+        # Signal 2: Artifact detection
+        if artifact_avg >= 70:
+            fake_signals += 1
+            signal_scores.append(("Artifact", artifact_avg))
+
+        # Signal 3: FFT anomaly
+        if fft_avg >= 65:
+            fake_signals += 1
+            signal_scores.append(("FFT", fft_avg))
+
+        # Signal 4: Temporal consistency (check if frames vary too much)
+        temporal_variance = abs(fft_avg - fft_min)
+        if temporal_variance > 15:  # Big jumps between frames = suspicious
+            fake_signals += 1
+            signal_scores.append(("Temporal", temporal_variance))
+
+        # 🔴 STRONG FAKE — 2+ signals agree it's fake
+        if fake_signals >= 2:
+            # Calculate confidence from detected signals
+            avg_fake_score = sum([s[1] for s in signal_scores]) / len(signal_scores)
             verdict = "FAKE"
-            confidence = 90
+            confidence = int(min(avg_fake_score, 95))
 
-        # 🟢 STRONG REAL — clean frequency + stable frames
-        elif fft_avg < 40 and abs(fft_avg - fft_min) < 10:
+        # 🟢 STRONG REAL — clean frequency + stable frames + low CNN
+        elif fft_avg < 35 and cnn_max < 70 and abs(fft_avg - fft_min) < 8:
             verdict = "REAL"
-            confidence = 80
+            confidence = 85
 
-        # 🟡 UNCERTAIN → SAFE REAL
+        # 🟡 UNCERTAIN → conservative (lean REAL but lower confidence)
         else:
             verdict = "REAL"
-            confidence = 60
+            confidence = 65
 
         return {
             "verdict": verdict,
@@ -102,13 +129,17 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
             "details": {
                 "facialAnalysis": int(cnn_avg),
                 "artifactDetection": int(artifact_avg),
-                "temporalConsistency": int(100 - abs(fft_avg - fft_min)),
+                "temporalConsistency": int(100 - min(abs(fft_avg - fft_min), 100)),
                 "metadataAnalysis": 0,
             },
             "engine": {
                 "primary": "video-forensics-v2",
-                "secondary": "fft+temporal",
-                "video_debug": stats,
+                "secondary": "fft+temporal+multi-signal-voting",
+                "video_debug": {
+                    **stats,
+                    "fake_signal_count": fake_signals,
+                    "detected_signals": [f"{s[0]}:{int(s[1])}" for s in signal_scores],
+                }
             }
         }
 
