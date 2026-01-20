@@ -185,7 +185,13 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     # -------------------------------------------------
     # FINAL IMAGE DECISION (CNN NEVER OVERRIDES)
     # -------------------------------------------------
-    if context == "REAL_STRONG":
+    
+    # ✅ NEW: CNN CONFIDENCE OVERRIDE (when extremely confident)
+    if cnn["fake"] >= 90:  # CNN is VERY sure it's fake
+        verdict = "FAKE"
+        confidence = int(cnn["fake"])
+    
+    elif context == "REAL_STRONG":
         verdict = "REAL"
         confidence = max(80, min(base_confidence + 10, 90))
 
