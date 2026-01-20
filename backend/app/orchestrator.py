@@ -217,10 +217,33 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     # FINAL IMAGE DECISION (CNN NEVER OVERRIDES)
     # -------------------------------------------------
     
-    # ✅ NEW: CNN CONFIDENCE OVERRIDE (when extremely confident)
-    if cnn["fake"] >= 90:  # CNN is VERY sure it's fake
-        verdict = "FAKE"
-        confidence = int(cnn["fake"])
+    # ✅ SMART CNN OVERRIDE: CNN is confident AND other signals agree
+    if cnn["fake"] >= 90:
+        # Only override if:
+        # 1. CNN is VERY confident (>=90) AND
+        # 2. At least ONE of these is true:
+        #    - High artifact score (CNN + artifacts agree)
+        #    - FFT shows clear fake pattern (>=70)
+        #    - Low EXIF (missing real camera metadata)
+        
+        has_artifact_agreement = artifact_raw >= 75
+        has_fft_fake_pattern = fft >= 70
+        has_low_exif = exif["authenticity_score"] <= 20
+        
+        if has_artifact_agreement or has_fft_fake_pattern or has_low_exif:
+            verdict = "FAKE"
+            confidence = int(cnn["fake"])
+        else:
+            # CNN is high but other signals don't support it → trust context
+            if context == "REAL_STRONG":
+                verdict = "REAL"
+                confidence = 75
+            elif context == "FAKE_STRONG":
+                verdict = "FAKE"
+                confidence = max(base_confidence, 80)
+            else:
+                verdict = "REAL"
+                confidence = base_confidence
     
     elif context == "REAL_STRONG":
         verdict = "REAL"
@@ -251,6 +274,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
                 "fft": round(fft, 1),
                 "cnn_fake": round(cnn["fake"], 1),
                 "exif": exif["authenticity_score"],
+                "cnn_override_applied": cnn["fake"] >= 90,
             }
         }
     }
