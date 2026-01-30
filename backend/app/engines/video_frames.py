@@ -5,12 +5,13 @@ import tempfile
 
 def extract_video_frames(
     video_path: str,
-    max_frames: int = 15,
+    max_frames: int = 8,
     interval_sec: float = 1.0
 ):
     """
     Extract stable frames from video at fixed time intervals.
     Skips overly blurry frames.
+    Optimized: Resizes frames to max width 640px for faster analysis.
     """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -28,6 +29,12 @@ def extract_video_frames(
             break
 
         if count % frame_interval == 0:
+            # Resize frame for performance (max width 640)
+            h, w = frame.shape[:2]
+            if w > 640:
+                scale = 640 / w
+                frame = cv2.resize(frame, (640, int(h * scale)))
+
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             blur = cv2.Laplacian(gray, cv2.CV_64F).var()
 

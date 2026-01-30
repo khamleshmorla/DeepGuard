@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { analyzeMedia as analyzeMediaAPI, fetchHistory, type AnalysisResult, type HistoryItem } from "@/lib/api";
+import { analyzeMedia as analyzeMediaAPI, fetchHistory, clearHistoryStorage, type AnalysisResult, type HistoryItem } from "@/lib/api";
 import { toast } from "sonner";
 
 export function useAnalysis() {
@@ -31,12 +31,12 @@ export function useAnalysis() {
 
     try {
       const analysisResult = await analyzeMediaAPI(file);
-      
+
       setResult(analysisResult);
-      
+
       // Refresh history to include the new item
       await loadHistory();
-      
+
       if (analysisResult.verdict === "FAKE") {
         toast.warning("⚠️ Potential deepfake detected!", {
           description: `Confidence: ${analysisResult.confidence}%`,
@@ -65,6 +65,7 @@ export function useAnalysis() {
 
   const clearHistory = useCallback(() => {
     setHistory([]);
+    clearHistoryStorage();
   }, []);
 
   return {

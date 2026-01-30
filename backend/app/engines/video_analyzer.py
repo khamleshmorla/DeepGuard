@@ -3,30 +3,39 @@ from app.engines.cnn import run_cnn
 from app.engines.fft_detector import fft_score
 
 
+import concurrent.futures
+
+def analyze_single_frame(path):
+    """Helper to process a single frame in parallel."""
+    try:
+        cnn_val = run_cnn(path)["fake"]
+    except Exception:
+        cnn_val = 50
+    
+    try:
+        fft_val = fft_score(path)
+    except Exception:
+        fft_val = 50
+        
+    return cnn_val, fft_val, 70  # 70 is artifact proxy
+
 def analyze_video_frames(frame_paths):
     """
     Aggregate CNN + FFT across stable frames.
-    CNN = support only.
-    FFT = primary physics signal.
+    Parallel execution for performance.
     """
     cnn_scores = []
     fft_scores = []
     artifact_scores = []
 
-    for p in frame_paths:
-        try:
-            cnn = run_cnn(p)
-            cnn_scores.append(cnn["fake"])
-        except Exception:
-            cnn_scores.append(50)
+    # Parallelize frame analysis
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(analyze_single_frame, frame_paths))
 
-        try:
-            fft_scores.append(fft_score(p))
-        except Exception:
-            fft_scores.append(50)
-
-        # Blur-based artifact proxy
-        artifact_scores.append(70)
+    for c, f, a in results:
+        cnn_scores.append(c)
+        fft_scores.append(f)
+        artifact_scores.append(a)
 
     if not cnn_scores:
         return _safe_video_fallback()

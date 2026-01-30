@@ -29,7 +29,7 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const file = e.dataTransfer.files[0];
     if (file) {
       if (isValidFileType(file)) {
@@ -44,10 +44,10 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
 
   const isValidFileType = (file: File): boolean => {
     const validTypes = [
-      'image/jpeg', 
-      'image/png', 
-      'image/webp', 
-      'video/mp4', 
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'video/mp4',
       'video/webm',
       'video/quicktime' // MOV files
     ];
@@ -112,7 +112,7 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
   const handleFileSelected = async (file: File) => {
     setSelectedFile(file);
     setVideoThumbnail(null);
-    
+
     // Create preview
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
@@ -141,6 +141,10 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
         });
       }
     }
+    // Reset input value to allow selecting the same file again if needed
+    if (e.target) {
+      e.target.value = '';
+    }
   };
 
   const handleStartAnalysis = () => {
@@ -166,7 +170,7 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
   };
 
   const isVideo = selectedFile && (
-    selectedFile.type.startsWith('video/') || 
+    selectedFile.type.startsWith('video/') ||
     selectedFile.name.toLowerCase().endsWith('.mov')
   );
 
@@ -194,7 +198,7 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
           <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center">
             <Upload className="w-10 h-10 text-primary" />
           </div>
-          
+
           <div className="text-center">
             <p className="font-display font-semibold text-lg mb-2">
               Drop your file here
@@ -270,7 +274,7 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
                 )}
               </div>
             )}
-            
+
             {!isAnalyzing && (
               <button
                 onClick={handleClear}
