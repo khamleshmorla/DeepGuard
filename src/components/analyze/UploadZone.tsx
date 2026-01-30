@@ -169,6 +169,18 @@ export function UploadZone({ onFileSelect, isAnalyzing }: UploadZoneProps) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Enable "Enter" key to start analysis
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && selectedFile && !isAnalyzing) {
+        handleStartAnalysis();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedFile, isAnalyzing, onFileSelect]);
+
   const isVideo = selectedFile && (
     selectedFile.type.startsWith('video/') ||
     selectedFile.name.toLowerCase().endsWith('.mov')

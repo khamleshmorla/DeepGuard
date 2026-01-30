@@ -4,20 +4,32 @@ from app.engines.fft_detector import fft_score
 
 
 import concurrent.futures
+from app.engines.custom_cnn import run_custom_cnn
 
 def analyze_single_frame(path):
     """Helper to process a single frame in parallel."""
+    # 1. Primary CNN
     try:
-        cnn_val = run_cnn(path)["fake"]
+        primary_val = run_cnn(path)["fake"]
     except Exception:
-        cnn_val = 50
+        primary_val = 50
+    
+    # 2. Custom CNN (Kaggle)
+    try:
+        custom_val = run_custom_cnn(path)
+    except Exception:
+        custom_val = 50
+        
+    # Ensemble Strategy: MAX (Pessimistic)
+    # If ANY expert says it's fake, we listen to them.
+    cnn_val = max(primary_val, custom_val)
     
     try:
         fft_val = fft_score(path)
     except Exception:
         fft_val = 50
         
-    return cnn_val, fft_val, 70  # 70 is artifact proxy
+    return cnn_val, fft_val, 50, primary_val, custom_val  # Return individual scores for debug
 
 def analyze_video_frames(frame_paths):
     """
@@ -32,10 +44,15 @@ def analyze_video_frames(frame_paths):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         results = list(executor.map(analyze_single_frame, frame_paths))
 
-    for c, f, a in results:
+    primary_scores = []
+    custom_scores = []
+
+    for c, f, a, p, k in results:
         cnn_scores.append(c)
         fft_scores.append(f)
         artifact_scores.append(a)
+        primary_scores.append(p)
+        custom_scores.append(k)
 
     if not cnn_scores:
         return _safe_video_fallback()
@@ -47,6 +64,8 @@ def analyze_video_frames(frame_paths):
         "fft_min": float(np.min(fft_scores)),
         "artifact_avg": float(np.mean(artifact_scores)),
         "total_frames": len(cnn_scores),
+        "primary_avg": float(np.mean(primary_scores)),
+        "custom_avg": float(np.mean(custom_scores)),
     }
 
 
@@ -58,4 +77,6 @@ def _safe_video_fallback():
         "fft_min": 50,
         "artifact_avg": 50,
         "total_frames": 0,
+        "primary_avg": 50,
+        "custom_avg": 50,
     }

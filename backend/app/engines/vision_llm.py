@@ -2,8 +2,7 @@ import os
 import json
 
 try:
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
     GENAI_AVAILABLE = True
 except Exception:
     GENAI_AVAILABLE = False
@@ -48,7 +47,9 @@ def run_vision_llm(file_path: str, file_type: str) -> dict:
             image_bytes = f.read()
 
         # ---------------- INIT CLIENT ----------------
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        # client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-1.5-pro")
 
         # ---------------- FORENSIC SYSTEM PROMPT ----------------
         prompt = """
@@ -91,18 +92,13 @@ Respond STRICTLY in valid JSON:
 """
 
         # ---------------- GEMINI VISION CALL ----------------
-        response = client.models.generate_content(
-            model="gemini-1.5-pro",
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_bytes(image_bytes, mime_type="image/jpeg"),
-                        types.Part.from_text(prompt),
-                    ],
-                )
-            ],
-        )
+        # Prepare content parts correctly for the SDK
+        from PIL import Image
+        import io
+        
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        response = model.generate_content([prompt, img])
 
         raw_text = response.text.strip()
 
