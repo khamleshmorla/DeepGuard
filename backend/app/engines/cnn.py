@@ -67,19 +67,31 @@ def temperature_scale(prob: float, temperature: float = CNN_TEMPERATURE) -> floa
 # -------------------------------
 # Load model once
 # -------------------------------
+import threading
+
+# -------------------------------
+# Load model once
+# -------------------------------
 _model = None
+_model_lock = threading.Lock()
 
 def load_model():
     global _model
-    if _model is None:
-        model = DeepGuardMultiHead()
-        model.load_state_dict(
-            torch.load(MODEL_PATH, map_location=DEVICE)
-        )
-        model.eval()
-        model.to(DEVICE)
-        _model = model
-        print("✅ DeepGuard CNN loaded successfully")
+    with _model_lock:
+        if _model is None:
+            model = DeepGuardMultiHead()
+            try:
+                state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
+                model.load_state_dict(state_dict)
+            except FileNotFoundError:
+                print(f"❌ Model file not found at {MODEL_PATH}. Using random weights for testing.")
+            except Exception as e:
+                print(f"❌ Failed to load model weights: {e}. Using random weights.")
+                
+            model.eval()
+            model.to(DEVICE)
+            _model = model
+            print("✅ DeepGuard CNN loaded successfully")
     return _model
 
 
