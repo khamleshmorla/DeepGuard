@@ -1,8 +1,8 @@
-# VerityAI - Advanced Deepfake Detection System
+# DeepGuard - Advanced Deepfake Detection System
 
-VerityAI is a production-grade security solution designed to detect AI-generated media (deepfakes) with high precision. By combining a modern React frontend with a robust Python/FastAPI backend and custom machine learning models, VerityAI offers real-time analysis for both images and videos.
+DeepGuard is a production-grade security solution designed to detect AI-generated media (deepfakes) with high precision. By combining a modern React frontend with a robust Python/FastAPI backend and custom machine learning models, DeepGuard offers real-time analysis for both images and videos.
 
-![VerityAI Dashboard](https://img.shields.io/badge/Status-Production-success?style=for-the-badge)
+![DeepGuard Dashboard](https://img.shields.io/badge/Status-Production-success?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Backend-FastAPI%20%2B%20PyTorch-3776AB?style=flat-square&logo=python)
 ![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-61DAFB?style=flat-square&logo=react)
@@ -77,7 +77,7 @@ Our detection engine uses a specialized EfficientNet-B0 backbone fine-tuned on t
 
 ## 🔒 Security & Privacy
 
-VerityAI processes all media in a transient manner. Uploaded files are analyzed in a temporary storage buffer and flushed immediately after inference to ensure user privacy.
+DeepGuard processes all media in a transient manner. Uploaded files are analyzed in a temporary storage buffer and flushed immediately after inference to ensure user privacy.
 
 ## 🤝 Contributing
 
