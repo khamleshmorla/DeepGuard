@@ -65,6 +65,11 @@ git add .gitattributes
 # ---- STEP 5: Copy backend files ----
 echo "📋 Copying backend files..."
 
+# CRITICAL: Remove old files first to prevent nesting
+echo "🧹 Cleaning old files..."
+rm -rf ./app ./Dockerfile ./requirements.txt
+# Keep README.md and .gitattributes
+
 # Copy README.md (with HF Space metadata)
 cp "$BACKEND_DIR/README.md" ./README.md
 
@@ -101,9 +106,10 @@ echo "  📊 Space Page:   https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAM
 echo "================================================"
 echo ""
 echo "⚠️  NEXT STEPS:"
-echo "  1. Set your GEMINI_API_KEY as a Space Secret:"
+echo "  1. Set your secrets in Space Settings:"
 echo "     → Go to https://huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME/settings"
 echo "     → Add secret: GEMINI_API_KEY = your_key"
+echo "     → Add secret: HF_TOKEN = your_hf_token"
 echo ""
 echo "  2. Update your frontend VITE_API_URL:"
 echo "     → In .env or Vercel dashboard, set:"
