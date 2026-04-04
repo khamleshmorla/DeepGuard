@@ -5,12 +5,15 @@ Uses an ensemble of 3 locally-loaded transformer models for FAST and ACCURATE in
 - umm-maybe/AI-image-detector (ViT)
 - haywoodsloan/ai-image-detector-deploy (Swinv2)
 
-This provides the same 'voting' logic as the API ensemble but runs in ~1-2 seconds.
+This provides the same 'voting' logic as the API ensemble but runs locally.
+Note: Explicitly uses AutoImageProcessor and Mean/Std normalization to match HF API.
 """
 import os
 import requests
 import time
+import torch
 from PIL import Image
+from transformers import AutoImageProcessor
 
 # ================================================================
 # ENSEMBLE CONFIGURATION
@@ -32,18 +35,19 @@ MODELS_TO_LOAD = [
         "id": "umm-maybe/AI-image-detector",
         "fake_label": "artificial",
         "real_label": "human",
-        "weight": 0.8  # Slight lower weight for umm-maybe as it can be jumpy
+        "weight": 0.8
     }
 ]
 
-# Global cache for pipeline objects
+# Global cache for pipeline objects and processors
 _ensemble_pipelines = {}
+_ensemble_processors = {}
 _ensemble_loaded = False
 
 
 def _load_ensemble():
     """Load all 3 models into memory. Called once at startup."""
-    global _ensemble_pipelines, _ensemble_loaded
+    global _ensemble_pipelines, _ensemble_processors, _ensemble_loaded
 
     if _ensemble_loaded:
         return True
@@ -61,6 +65,8 @@ def _load_ensemble():
                 model=m_id,
                 device=-1  # CPU
             )
+            # Pre-load processor for exact normalization match
+            _ensemble_processors[m_id] = AutoImageProcessor.from_pretrained(m_id)
             print(f"    ✅ Done ({round(time.time() - start, 1)}s)")
         except Exception as e:
             print(f"    ❌ Failed to load {m_id}: {e}")
@@ -102,19 +108,17 @@ except Exception as e:
 
 def run_hf_ai_detector(file_path):
     """
-    Run local ensemble inference.
+    Run local ensemble inference with explicit normalization.
     Returns dict with verdict, confidence, model_scores, explanation.
     """
     if not _ensemble_pipelines:
-        # Emergency attempt if not loaded
         _load_ensemble()
 
     try:
-        # Added debug logging for image quality check
+        # Debug logging for image quality check
         with Image.open(file_path) as img_check:
             print(f"🖼️ Detector reading: {file_path.split('/')[-1]} | Size: {img_check.size} | Mode: {img_check.mode}")
-        
-        img = Image.open(file_path).convert("RGB")
+        raw_img = Image.open(file_path).convert("RGB")
     except Exception as e:
         return {"verdict": "UNKNOWN", "confidence": 50, "explanation": f"Read error: {e}"}
 
@@ -129,7 +133,28 @@ def run_hf_ai_detector(file_path):
 
         try:
             start_m = time.time()
-            results = _ensemble_pipelines[m_id](img)
+            
+            # Explicit normalization to match HF API exactly
+            processor = _ensemble_processors.get(m_id)
+            if not processor:
+                processor = AutoImageProcessor.from_pretrained(m_id)
+                _ensemble_processors[m_id] = processor
+
+            inputs = processor(images=raw_img, return_tensors="pt")
+            model = _ensemble_pipelines[m_id].model
+            
+            with torch.no_grad():
+                outputs = model(**inputs)
+                probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
+                
+                # Map probabilities back to labels using model config
+                results = []
+                for i, prob in enumerate(probs[0]):
+                    results.append({
+                        "label": model.config.id2label[i], 
+                        "score": float(prob)
+                    })
+
             score = _extract_score(results, cfg["fake_label"], cfg["real_label"])
             elapsed = round(time.time() - start_m, 2)
             
@@ -151,14 +176,16 @@ def run_hf_ai_detector(file_path):
         }
 
     total_time = round(time.time() - start_total, 2)
-    avg_score = sum(scores) / sum(c["weight"] for c in MODELS_TO_LOAD if c["id"] in _ensemble_pipelines)
-    max_score = max(scores)
+    # Weighted average calculation
+    weight_sum = sum(c["weight"] for c in MODELS_TO_LOAD if c["id"] in _ensemble_pipelines)
+    avg_score = sum(scores) / (weight_sum if weight_sum > 0 else 1)
+    max_score = max(scores) if scores else 0
 
-    # Thresholding
-    if avg_score >= 60 or max_score >= 85:
+    # Thresholding (FUSION context relies on this being passed back faithfully)
+    if avg_score >= 60 or max_score >= 82:
         verdict = "FAKE"
         confidence = int(min(max(avg_score, max_score), 99))
-    elif avg_score <= 35:
+    elif avg_score <= 30:
         verdict = "REAL"
         confidence = int(100 - avg_score)
     else:
@@ -170,7 +197,9 @@ def run_hf_ai_detector(file_path):
 
     return {
         "verdict": verdict,
-        "confidence": confidence,
+        "confidence": int(confidence),
+        "avg_score": round(avg_score, 1),
+        "max_score": round(max_score, 1),
         "model_scores": details,
         "explanation": explanation,
     }
