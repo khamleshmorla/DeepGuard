@@ -200,7 +200,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     # =================================================
 
     # ---- HF AI Detector (catches DALL-E, Midjourney, SDXL) ----
-    hf_result = run_hf_ai_detector(file_path)
+    hf_result = run_hf_ai_detector(original_path)
     hf_verdict = hf_result.get("verdict", "UNKNOWN").upper()
     hf_confidence = hf_result.get("confidence", 50)
     print(f"🔬 HF AI Detector: {hf_verdict} ({hf_confidence}%)")

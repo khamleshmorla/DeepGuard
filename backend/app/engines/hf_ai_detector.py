@@ -110,6 +110,10 @@ def run_hf_ai_detector(file_path):
         _load_ensemble()
 
     try:
+        # Added debug logging for image quality check
+        with Image.open(file_path) as img_check:
+            print(f"🖼️ Detector reading: {file_path.split('/')[-1]} | Size: {img_check.size} | Mode: {img_check.mode}")
+        
         img = Image.open(file_path).convert("RGB")
     except Exception as e:
         return {"verdict": "UNKNOWN", "confidence": 50, "explanation": f"Read error: {e}"}
