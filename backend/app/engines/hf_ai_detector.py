@@ -1,37 +1,46 @@
 """
 Hugging Face AI Image Detector Engine
-Uses dedicated AI-vs-Real image classification models via the free HF Inference API.
+Uses dedicated AI-vs-Real image classification models via the HF Inference API.
 These models are specifically trained to detect DALL-E 3, Midjourney, Stable Diffusion, etc.
+
+IMPORTANT: Uses the NEW router endpoint (router.huggingface.co), NOT the deprecated
+api-inference.huggingface.co which returns 410 Gone.
 """
 import os
 import requests
 import time
 
 
-# Multiple models for ensemble voting
+# Multiple models for ensemble voting — all verified working on the new HF router
 HF_MODELS = [
     {
-        "name": "Ateeqq/ai-vs-human-image-detector",
-        "fake_label": "ai",
+        "name": "umm-maybe/AI-image-detector",
+        "fake_label": "artificial",
         "real_label": "human",
     },
     {
-        "name": "dima806/ai_vs_real_image_detection",
+        "name": "Ateeqq/ai-vs-human-image-detector",
         "fake_label": "ai",
-        "real_label": "real",
+        "real_label": "hum",
     },
     {
-        "name": "prithivMLmods/Deep-Fake-Detector-v2-Model",
-        "fake_label": "Fake",
-        "real_label": "Real",
+        "name": "haywoodsloan/ai-image-detector-deploy",
+        "fake_label": "artificial",
+        "real_label": "real",
     },
 ]
+
+# NEW HF Inference API base URL (old api-inference.huggingface.co is deprecated/410)
+HF_API_BASE = "https://router.huggingface.co/hf-inference/models/"
 
 
 def _query_hf_model(model_name, image_bytes, token):
     """Send image bytes to HF Inference API and return classification results."""
-    url = "https://api-inference.huggingface.co/models/" + model_name
-    headers = {"Authorization": "Bearer " + token}
+    url = HF_API_BASE + model_name
+    headers = {
+        "Authorization": "Bearer " + token,
+        "Content-Type": "image/jpeg",
+    }
 
     try:
         resp = requests.post(url, headers=headers, data=image_bytes, timeout=30)
