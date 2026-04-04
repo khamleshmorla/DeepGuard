@@ -1,6 +1,6 @@
 // Backend API URL - use environment variable or fallback to Render URL
 const BACKEND_API_URL =
-  import.meta.env.VITE_API_URL || "https://deepguard-backend-p5yq.onrender.com";
+  import.meta.env.VITE_API_URL || "https://khamleshmorla2609-deepguard-backend.hf.space";
 
 const HISTORY_STORAGE_KEY = "deepguard_history";
 

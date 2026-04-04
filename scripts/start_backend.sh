@@ -14,11 +14,11 @@ else
 fi
 
 # 2. Activate Venv
-source venv/bin/activate
+source venv/bin/activate || true
 
 # 3. Install Dependencies
 echo "⬇️ Installing/Updating dependencies..."
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # 4. Check for model file (optional but good)
 MODEL_DIR="app/models"

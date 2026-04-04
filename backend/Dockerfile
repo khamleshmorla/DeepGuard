@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app
 COPY app ./app
 
-# Expose port
-EXPOSE 8000
+# Expose port (HF Spaces expects 7860)
+EXPOSE 7860
 
-# Run server
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run server on port 7860
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]

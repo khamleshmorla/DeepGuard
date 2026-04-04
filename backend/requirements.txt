@@ -9,7 +9,8 @@ pydantic
 python-dotenv
 opencv-python-headless
 pillow
-google-generativeai
+google-genai
+requests
 
 torch
 torchvision

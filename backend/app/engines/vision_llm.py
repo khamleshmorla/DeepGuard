@@ -2,7 +2,8 @@ import os
 import json
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GENAI_AVAILABLE = True
 except Exception:
     GENAI_AVAILABLE = False
@@ -10,7 +11,7 @@ except Exception:
 
 def run_vision_llm(file_path: str, file_type: str) -> dict:
     """
-    Gemini Vision – Lovable-style forensic analysis
+    Gemini Vision – forensic analysis
     - Guilty until proven innocent
     - Structured signals
     - Rule-based verdict
@@ -47,9 +48,7 @@ def run_vision_llm(file_path: str, file_type: str) -> dict:
             image_bytes = f.read()
 
         # ---------------- INIT CLIENT ----------------
-        # client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
         # ---------------- FORENSIC SYSTEM PROMPT ----------------
         prompt = """
@@ -92,13 +91,19 @@ Respond STRICTLY in valid JSON:
 """
 
         # ---------------- GEMINI VISION CALL ----------------
-        # Prepare content parts correctly for the SDK
         from PIL import Image
         import io
-        
+
         img = Image.open(io.BytesIO(image_bytes))
-        
-        response = model.generate_content([prompt, img])
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[img, prompt],
+            config=types.GenerateContentConfig(
+                temperature=0.4,
+                response_mime_type="application/json",
+            )
+        )
 
         raw_text = response.text.strip()
 
@@ -144,5 +149,5 @@ Respond STRICTLY in valid JSON:
             "signals": base_signals,
             "verdict": "UNKNOWN",
             "confidence": 50,
-            "explanation": f"Vision LLM failed safely: {str(e)}"
+            "explanation": "Vision LLM failed safely: " + str(e)
         }

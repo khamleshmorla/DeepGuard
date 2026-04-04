@@ -3,6 +3,7 @@ from app.engines.heuristics import image_heuristics, video_heuristics
 from app.engines.cnn import run_cnn
 from app.engines.fft_detector import fft_score
 from app.engines.exif_detector import extract_exif_authenticity
+from app.engines.hf_ai_detector import run_hf_ai_detector
 
 # VIDEO
 from app.engines.video_frames import extract_video_frames
@@ -198,6 +199,60 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     # 🖼️ IMAGE PIPELINE (CALIBRATED CNN)
     # =================================================
 
+    # ---- HF AI Detector (catches DALL-E, Midjourney, SDXL) ----
+    hf_result = run_hf_ai_detector(file_path)
+    hf_verdict = hf_result.get("verdict", "UNKNOWN").upper()
+    hf_confidence = hf_result.get("confidence", 50)
+    print(f"🔬 HF AI Detector: {hf_verdict} ({hf_confidence}%)")
+
+    # ---- EXIF cross-check to prevent false positives ----
+    # Real camera photos have EXIF metadata. AI images (DALL-E, Midjourney) have NONE.
+    # If HF says FAKE but the image has strong EXIF → likely a false positive → skip override.
+    exif = extract_exif_authenticity(original_path)
+    exif_score = exif["authenticity_score"]
+
+    hf_override = False
+    if hf_verdict == "FAKE" and hf_confidence >= 60:
+        if exif_score >= 30:
+            # Strong EXIF = real camera. HF might be wrong (heavily filtered photo).
+            # Let the full pipeline decide instead.
+            print(f"🛡️ SAFETY: HF says FAKE but EXIF is strong ({exif_score}). Running full pipeline to verify.")
+            hf_override = False
+        else:
+            # No/weak EXIF = no camera metadata = likely AI-generated. Trust HF.
+            hf_override = True
+
+    if hf_override:
+        # Still run LLM for signal scores (display purposes)
+        llm = run_vision_llm(file_path, file_type).get("signals", {
+            "facialAnalysis": 50,
+            "artifactDetection": 50,
+            "temporalConsistency": 50,
+            "metadataAnalysis": 50,
+        })
+
+        heur = image_heuristics(file_path)
+
+        merged = {
+            "facialAnalysis": max(llm["facialAnalysis"], heur["facialAnalysis"]),
+            "artifactDetection": max(llm["artifactDetection"], heur["artifactDetection"]),
+            "temporalConsistency": max(llm["temporalConsistency"], heur["temporalConsistency"]),
+            "metadataAnalysis": heur["metadataAnalysis"],
+        }
+
+        print(f"🔬 HF OVERRIDE: AI-image detected (no camera EXIF) → FAKE ({hf_confidence}%)")
+
+        return {
+            "verdict": "FAKE",
+            "confidence": hf_confidence,
+            "details": merged,
+            "engine": {
+                "primary": "hf-ai-detector",
+                "secondary": "ensemble-ai-vs-real",
+            }
+        }
+
+    # ---- Original pipeline (unchanged from before) ----
     llm = run_vision_llm(file_path, file_type).get("signals", {
         "facialAnalysis": 50,
         "artifactDetection": 50,
@@ -208,7 +263,7 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     heur = image_heuristics(file_path)
     cnn = run_cnn(file_path)
     fft = fft_score(file_path)
-    exif = extract_exif_authenticity(original_path)
+    # exif already extracted above for HF cross-check
 
     print(
         f"📊 FFT: {fft:.1f} | "
@@ -270,9 +325,6 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     
     
     # 🔴 PRIORITY 1: STRONG REAL SIGNAL (Veto with Metadata)
-    # If physics (FFT) says it's definitely REAL (<30), we trust it over CNN
-    # ONLY IF we also have some metadata (EXIF) to back it up.
-    # This distinguishes Webcam (Has EXIF) from Generated (No EXIF).
     if context == "REAL_STRONG" and cnn["fake"] < 99 and exif["authenticity_score"] >= 15:
         verdict = "REAL"
         confidence = max(80, min(base_confidence + 10, 95))
@@ -312,3 +364,4 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
             }
         }
     }
+

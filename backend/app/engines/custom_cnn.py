@@ -6,7 +6,7 @@ from PIL import Image
 import threading
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_PATH = "app/models/deepguard_video_cnn.pth"
+MODEL_PATH = "app/models/deepguard_video_cnn_v2.pth"
 
 # -------------------------------
 # Custom Model Architecture

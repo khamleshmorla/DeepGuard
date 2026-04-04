@@ -57,3 +57,4 @@ backend/__pycache__/
 *.dylib
 *.so
 *.dll
+.vercel

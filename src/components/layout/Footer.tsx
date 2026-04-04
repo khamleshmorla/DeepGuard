@@ -14,9 +14,9 @@ export const Footer = forwardRef<HTMLElement, FooterProps>(({ onNavigate }, ref)
   return (
     <footer ref={ref} className="border-t border-border/30 py-12 mt-auto">
       <div className="container mx-auto px-4">
-        <div className="grid md:grid-cols-4 gap-8 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-8">
           {/* Brand */}
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <div className="flex items-center gap-3 mb-4">
               <Shield className="w-6 h-6 text-primary" />
               <span className="font-display font-bold text-lg">
@@ -105,6 +105,29 @@ export const Footer = forwardRef<HTMLElement, FooterProps>(({ onNavigate }, ref)
               </li>
             </ul>
           </div>
+          
+          {/* Contact */}
+          <div>
+            <h4 className="font-display font-semibold mb-4">Contact Details</h4>
+            <ul className="space-y-3 text-sm text-muted-foreground">
+              <li className="flex flex-col gap-1">
+                <span className="text-foreground font-medium">Email</span>
+                <a href="mailto:morlakhamlesh@gmail.com" className="hover:text-primary transition-colors">
+                  morlakhamlesh@gmail.com
+                </a>
+              </li>
+              <li className="flex flex-col gap-1">
+                <span className="text-foreground font-medium">Phone</span>
+                <a href="tel:+919182056492" className="hover:text-primary transition-colors">
+                  +91-9182056492
+                </a>
+              </li>
+              <li className="flex flex-col gap-1">
+                <span className="text-foreground font-medium">Location</span>
+                <span>Hyper-Secure Server Facility, Global</span>
+              </li>
+            </ul>
+          </div>
         </div>
 
         {/* Bottom */}
@@ -114,7 +137,7 @@ export const Footer = forwardRef<HTMLElement, FooterProps>(({ onNavigate }, ref)
           </p>
           <div className="flex items-center gap-4">
             <a 
-              href="https://github.com" 
+              href="https://github.com/khamleshmorla" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="text-muted-foreground hover:text-foreground transition-colors"
@@ -130,7 +153,7 @@ export const Footer = forwardRef<HTMLElement, FooterProps>(({ onNavigate }, ref)
               <Twitter className="w-5 h-5" />
             </a>
             <a 
-              href="mailto:contact@deepguard.ai" 
+              href="mailto:morlakhamlesh@gmail.com" 
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               <Mail className="w-5 h-5" />
