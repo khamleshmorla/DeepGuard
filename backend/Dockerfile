@@ -12,8 +12,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the transformer model to the image
-RUN python3 -c "from transformers import pipeline; pipeline('image-classification', model='Ateeqq/ai-vs-human-image-detector')"
+# Pre-download the transformer models to the image for fast ensemble startup
+RUN python3 -c "from transformers import pipeline; \
+    pipeline('image-classification', model='Ateeqq/ai-vs-human-image-detector'); \
+    pipeline('image-classification', model='haywoodsloan/ai-image-detector-deploy'); \
+    pipeline('image-classification', model='umm-maybe/AI-image-detector')"
 
 # Copy app
 COPY app ./app
