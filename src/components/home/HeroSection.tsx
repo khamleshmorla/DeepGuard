@@ -74,8 +74,8 @@ export function HeroSection({ onStartAnalysis, onScrollToHowItWorks }: HeroSecti
             {[
               { value: "99.2%", label: "Detection Accuracy" },
               { value: "<3s", label: "Analysis Time" },
-              { value: "50M+", label: "Media Analyzed" },
-              { value: "24/7", label: "Real-time Protection" },
+              { value: "4", label: "Ensemble AI Engines" },
+              { value: "100%", label: "Privacy Secured" },
             ].map((stat, index) => (
               <div key={index} className="stat-card text-center">
                 <div className="font-display text-2xl md:text-3xl font-bold text-gradient mb-1">

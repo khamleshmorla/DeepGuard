@@ -21,9 +21,9 @@ export function AboutSection() {
         <div className="grid md:grid-cols-4 gap-6 mb-16">
           {[
             { icon: Shield, value: "99.2%", label: "Accuracy Rate" },
-            { icon: Brain, value: "15+", label: "AI Models Trained" },
-            { icon: Users, value: "10K+", label: "Active Users" },
-            { icon: Globe, value: "50+", label: "Countries Served" },
+            { icon: Brain, value: "4", label: "Ensemble Models" },
+            { icon: Users, value: "100%", label: "User Privacy" },
+            { icon: Globe, value: "Universal", label: "Format Support" },
           ].map((stat, index) => (
             <div key={index} className="glass-card glow-border p-6 text-center">
               <stat.icon className="w-8 h-8 text-primary mx-auto mb-3" />

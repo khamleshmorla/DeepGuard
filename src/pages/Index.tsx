@@ -19,7 +19,8 @@ const Index = () => {
 
   const handleNavigate = (page: string) => {
     setCurrentPage(page as Page);
-    if (page !== "analyze") {
+    // Always clear the previous result when returning to or re-clicking the Analysis page to ensure a fresh start
+    if (page === "analyze" || page === "home") {
       clearResult();
     }
     // Scroll to top on page change
