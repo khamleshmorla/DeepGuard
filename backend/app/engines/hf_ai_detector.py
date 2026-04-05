@@ -1,205 +1,193 @@
 """
-Hugging Face AI Image Detector Engine (Local Ensemble)
-Uses an ensemble of 3 locally-loaded transformer models for FAST and ACCURATE inference.
-- Ateeqq/ai-vs-human-image-detector (SigLIP)
-- umm-maybe/AI-image-detector (ViT)
-- haywoodsloan/ai-image-detector-deploy (Swinv2)
+Hugging Face AI Image Detector Engine
+Uses local Hugging Face image classification pipelines.
+These models are specifically trained to detect DALL-E 3, Midjourney, Stable Diffusion, etc.
 
-This provides the same 'voting' logic as the API ensemble but runs locally.
-Note: Explicitly uses AutoImageProcessor and Mean/Std normalization to match HF API.
+IMPORTANT: This implementation executes models locally in RAM to prevent latency and timeout issues
+previously experienced with the HF Inference API.
 """
 import os
-import requests
-import time
-import torch
+import threading
 from PIL import Image
-from transformers import AutoImageProcessor
 
-# ================================================================
-# ENSEMBLE CONFIGURATION
-# ================================================================
-MODELS_TO_LOAD = [
+try:
+    from transformers import pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+
+# Multiple models for ensemble voting
+HF_MODELS = [
     {
-        "id": "Ateeqq/ai-vs-human-image-detector",
-        "fake_label": "ai",
-        "real_label": "hum",
-        "weight": 1.0
-    },
-    {
-        "id": "haywoodsloan/ai-image-detector-deploy",
-        "fake_label": "artificial",
-        "real_label": "real",
-        "weight": 1.0
-    },
-    {
-        "id": "umm-maybe/AI-image-detector",
+        "name": "umm-maybe/AI-image-detector",
         "fake_label": "artificial",
         "real_label": "human",
-        "weight": 0.8
-    }
+    },
+    {
+        "name": "Ateeqq/ai-vs-human-image-detector",
+        "fake_label": "ai",
+        "real_label": "hum",
+    },
+    {
+        "name": "haywoodsloan/ai-image-detector-deploy",
+        "fake_label": "artificial",
+        "real_label": "real",
+    },
 ]
 
-# Global cache for pipeline objects and processors
-_ensemble_pipelines = {}
-_ensemble_processors = {}
-_ensemble_loaded = False
+# Thread-safe pipeline cache
+_pipelines = {}
+_pipeline_lock = threading.Lock()
+
+def _get_pipeline(model_name):
+    """Lazily initialize and cache the HF pipeline to prevent reloading memory per request."""
+    global _pipelines
+    if model_name in _pipelines:
+        return _pipelines[model_name]
+        
+    with _pipeline_lock:
+        # Double check inside lock
+        if model_name not in _pipelines:
+            print(f"📥 Loading local HF model into memory: {model_name}...")
+            try:
+                # pipeline downloads model if not present locally, then loads to RAM
+                pipe = pipeline("image-classification", model=model_name)
+                _pipelines[model_name] = pipe
+                print(f"✅ Loaded {model_name} successfully.")
+            except Exception as e:
+                print(f"❌ Failed to load {model_name}: {e}")
+                _pipelines[model_name] = None
+                
+    return _pipelines[model_name]
 
 
-def _load_ensemble():
-    """Load all 3 models into memory. Called once at startup."""
-    global _ensemble_pipelines, _ensemble_processors, _ensemble_loaded
-
-    if _ensemble_loaded:
-        return True
-
-    from transformers import pipeline
-    print("🛡️ Loading DeepGuard AI Ensemble (3 Models)...")
-    
-    for cfg in MODELS_TO_LOAD:
-        m_id = cfg["id"]
-        try:
-            print(f"  → Loading {m_id.split('/')[-1]}...")
-            start = time.time()
-            _ensemble_pipelines[m_id] = pipeline(
-                "image-classification",
-                model=m_id,
-                device=-1  # CPU
-            )
-            # Pre-load processor for exact normalization match
-            _ensemble_processors[m_id] = AutoImageProcessor.from_pretrained(m_id)
-            print(f"    ✅ Done ({round(time.time() - start, 1)}s)")
-        except Exception as e:
-            print(f"    ❌ Failed to load {m_id}: {e}")
-
-    _ensemble_loaded = True
-    return len(_ensemble_pipelines) > 0
+def _query_local_model(model_name, image):
+    """Run local image classification pipeline and return classification results."""
+    pipe = _get_pipeline(model_name)
+    if pipe is None:
+        return None
+        
+    try:
+        results = pipe(image)
+        return results
+    except Exception as e:
+        print(f"HF local model {model_name} failed inference: {e}")
+        return None
 
 
-def _extract_score(results, fake_label, real_label):
-    """Extract probability from model results."""
+def _extract_fake_score(results, fake_label, real_label):
+    """Extract the 'fake/AI' probability from local HF classification output."""
+    if not results or not isinstance(results, list):
+        return None
+
     fake_score = None
     real_score = None
 
     for item in results:
         label = item.get("label", "").lower().strip()
-        score = item.get("score", 0) * 100
+        score = item.get("score", 0)
+
         if fake_label.lower() in label:
-            fake_score = score
+            fake_score = score * 100
         elif real_label.lower() in label:
-            real_score = score
+            real_score = score * 100
 
     if fake_score is not None:
         return fake_score
     if real_score is not None:
         return 100 - real_score
-    return 50  # Neutral fallback
 
-
-# ================================================================
-# MAIN ENTRY POINT
-# ================================================================
-
-# Eagerly try to load local ensemble at import time
-try:
-    _load_ensemble()
-except Exception as e:
-    print(f"⚠️ Ensemble eager load failed (might be build time): {e}")
+    return None
 
 
 def run_hf_ai_detector(file_path):
     """
-    Run local ensemble inference with explicit normalization.
+    Run ensemble of Hugging Face AI-image-detector models LOCALLY.
     Returns dict with verdict, confidence, model_scores, explanation.
     """
-    if not _ensemble_pipelines:
-        _load_ensemble()
+    if not TRANSFORMERS_AVAILABLE:
+        return {
+            "verdict": "UNKNOWN",
+            "confidence": 50,
+            "model_scores": [],
+            "explanation": "Transformers library not installed. Cannot run local models."
+        }
 
     try:
-        # Debug logging for image quality check
-        with Image.open(file_path) as img_check:
-            print(f"🖼️ Detector reading: {file_path.split('/')[-1]} | Size: {img_check.size} | Mode: {img_check.mode}")
-        raw_img = Image.open(file_path).convert("RGB")
+        image = Image.open(file_path).convert("RGB")
     except Exception as e:
-        return {"verdict": "UNKNOWN", "confidence": 50, "explanation": f"Read error: {e}"}
+        return {
+            "verdict": "UNKNOWN",
+            "confidence": 50,
+            "model_scores": [],
+            "explanation": f"Failed to read image for HF local pipelines: {e}"
+        }
 
     scores = []
-    details = []
-    start_total = time.time()
+    model_details = []
 
-    for cfg in MODELS_TO_LOAD:
-        m_id = cfg["id"]
-        if m_id not in _ensemble_pipelines:
+    for model_cfg in HF_MODELS:
+        name = model_cfg["name"]
+        results = _query_local_model(name, image)
+
+        if results is None:
+            model_details.append({"model": name, "status": "failed", "score": None})
             continue
 
-        try:
-            start_m = time.time()
-            
-            # Explicit normalization to match HF API exactly
-            processor = _ensemble_processors.get(m_id)
-            if not processor:
-                processor = AutoImageProcessor.from_pretrained(m_id)
-                _ensemble_processors[m_id] = processor
+        fake_pct = _extract_fake_score(results, model_cfg["fake_label"], model_cfg["real_label"])
 
-            inputs = processor(images=raw_img, return_tensors="pt")
-            model = _ensemble_pipelines[m_id].model
-            
-            with torch.no_grad():
-                outputs = model(**inputs)
-                probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
-                
-                # Map probabilities back to labels using model config
-                results = []
-                for i, prob in enumerate(probs[0]):
-                    results.append({
-                        "label": model.config.id2label[i], 
-                        "score": float(prob)
-                    })
-
-            score = _extract_score(results, cfg["fake_label"], cfg["real_label"])
-            elapsed = round(time.time() - start_m, 2)
-            
-            scores.append(score * cfg["weight"])
-            details.append({
-                "model": m_id.split("/")[-1],
-                "score": round(score, 1),
-                "time": elapsed
+        if fake_pct is not None:
+            scores.append(fake_pct)
+            model_details.append({
+                "model": name,
+                "status": "ok",
+                "score": round(fake_pct, 1),
+                "raw": results
             })
-            print(f"Ensemble [{m_id.split('/')[-1]}]: AI={round(score, 1)}% ({elapsed}s)")
-        except Exception as e:
-            print(f"Model {m_id} inference error: {e}")
+            short_name = name.split("/")[-1]
+            print(f"HF Local [{short_name}]: AI={round(fake_pct, 1)}%")
+        else:
+            model_details.append({"model": name, "status": "parse_error", "score": None, "raw": results})
 
     if not scores:
         return {
             "verdict": "UNKNOWN",
             "confidence": 50,
-            "explanation": "Local ensemble failed to provide signal."
+            "model_scores": model_details,
+            "explanation": "All local HF models failed or returned unparseable results."
         }
 
-    total_time = round(time.time() - start_total, 2)
-    # Weighted average calculation
-    weight_sum = sum(c["weight"] for c in MODELS_TO_LOAD if c["id"] in _ensemble_pipelines)
-    avg_score = sum(scores) / (weight_sum if weight_sum > 0 else 1)
-    max_score = max(scores) if scores else 0
+    avg_score = sum(scores) / len(scores)
+    max_score = max(scores)
 
-    # Thresholding (FUSION context relies on this being passed back faithfully)
-    if avg_score >= 60 or max_score >= 82:
+    if avg_score >= 60 or max_score >= 80:
         verdict = "FAKE"
         confidence = int(min(max(avg_score, max_score), 99))
-    elif avg_score <= 30:
+    elif avg_score <= 35:
         verdict = "REAL"
         confidence = int(100 - avg_score)
     else:
         verdict = "UNCERTAIN"
         confidence = 50
 
-    model_summary = ", ".join([f"{d['model']}={d['score']}%" for d in details])
-    explanation = f"Local Ensemble ({total_time}s): AI Avg={round(avg_score, 1)}%. Models: {model_summary}"
+    model_summary_parts = []
+    for d in model_details:
+        if d["status"] == "ok":
+            short_name = d["model"].split("/")[-1]
+            model_summary_parts.append(f"{short_name}={d['score']}%")
+    model_summary = ", ".join(model_summary_parts)
+
+    explanation = (
+        f"Local Ensemble of {len(scores)} HF models: "
+        f"avg AI score={round(avg_score, 1)}%, "
+        f"max={round(max_score, 1)}%. "
+        f"Models: {model_summary}"
+    )
 
     return {
         "verdict": verdict,
-        "confidence": int(confidence),
-        "avg_score": round(avg_score, 1),
-        "max_score": round(max_score, 1),
-        "model_scores": details,
+        "confidence": confidence,
+        "model_scores": model_details,
         "explanation": explanation,
     }

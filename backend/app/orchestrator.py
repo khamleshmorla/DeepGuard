@@ -200,16 +200,59 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
     # =================================================
 
     # ---- HF AI Detector (catches DALL-E, Midjourney, SDXL) ----
-    hf_result = run_hf_ai_detector(original_path)
-    hf_avg = hf_result.get("avg_score", 0)
-    hf_max = hf_result.get("max_score", 0)
+    hf_result = run_hf_ai_detector(file_path)
     hf_verdict = hf_result.get("verdict", "UNKNOWN").upper()
+    hf_confidence = hf_result.get("confidence", 50)
+    print(f"🔬 HF AI Detector: {hf_verdict} ({hf_confidence}%)")
 
-    # ---- EXIF cross-check for high-confidence real indicators ----
+    # ---- EXIF cross-check to prevent false positives ----
+    # Real camera photos have EXIF metadata. AI images (DALL-E, Midjourney) have NONE.
+    # If HF says FAKE but the image has strong EXIF → likely a false positive → skip override.
     exif = extract_exif_authenticity(original_path)
     exif_score = exif["authenticity_score"]
 
-    # ---- Vision LLM (Semantic Reasoning) ----
+    hf_override = False
+    if hf_verdict == "FAKE" and hf_confidence >= 60:
+        if exif_score >= 30:
+            # Strong EXIF = real camera. HF might be wrong (heavily filtered photo).
+            # Let the full pipeline decide instead.
+            print(f"🛡️ SAFETY: HF says FAKE but EXIF is strong ({exif_score}). Running full pipeline to verify.")
+            hf_override = False
+        else:
+            # No/weak EXIF = no camera metadata = likely AI-generated. Trust HF.
+            hf_override = True
+
+    if hf_override:
+        # Still run LLM for signal scores (display purposes)
+        llm = run_vision_llm(file_path, file_type).get("signals", {
+            "facialAnalysis": 50,
+            "artifactDetection": 50,
+            "temporalConsistency": 50,
+            "metadataAnalysis": 50,
+        })
+
+        heur = image_heuristics(file_path)
+
+        merged = {
+            "facialAnalysis": max(llm["facialAnalysis"], heur["facialAnalysis"]),
+            "artifactDetection": max(llm["artifactDetection"], heur["artifactDetection"]),
+            "temporalConsistency": max(llm["temporalConsistency"], heur["temporalConsistency"]),
+            "metadataAnalysis": heur["metadataAnalysis"],
+        }
+
+        print(f"🔬 HF OVERRIDE: AI-image detected (no camera EXIF) → FAKE ({hf_confidence}%)")
+
+        return {
+            "verdict": "FAKE",
+            "confidence": hf_confidence,
+            "details": merged,
+            "engine": {
+                "primary": "hf-ai-detector",
+                "secondary": "ensemble-ai-vs-real",
+            }
+        }
+
+    # ---- Original pipeline (unchanged from before) ----
     llm = run_vision_llm(file_path, file_type).get("signals", {
         "facialAnalysis": 50,
         "artifactDetection": 50,
@@ -217,100 +260,108 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
         "metadataAnalysis": 50,
     })
 
-    # ---- Classic Forensics (CNN & FFT) ----
     heur = image_heuristics(file_path)
     cnn = run_cnn(file_path)
     fft = fft_score(file_path)
+    # exif already extracted above for HF cross-check
 
     print(
-        f"📊 HF Ensemble: Avg={hf_avg:.1f} Max={hf_max:.1f} | "
+        f"📊 FFT: {fft:.1f} | "
         f"🧠 CNN: {cnn['fake']:.1f} | "
-        f"📸 EXIF: {exif_score}"
+        f"📸 EXIF: {exif['authenticity_score']}"
     )
 
     # -------------------------------------------------
-    # SIGNAL FUSION (ADAPTIVE & CONTEXT-AWARE)
+    # CONTEXT AWARE CNN SCALING
     # -------------------------------------------------
-    
-    # 1. Artifact Detection (Highest Weight to HF & LLM for AI images)
+    artifact_raw = max(
+        cnn["artifact"],
+        llm["artifactDetection"],
+        heur["artifactDetection"]
+    )
+
+    context = signal_context(
+        fft=fft,
+        exif_score=exif["authenticity_score"],
+        artifact=artifact_raw
+    )
+
+    cnn_w = cnn_weight(context)
+
+    # -------------------------------------------------
+    # SIGNAL FUSION (CNN IS ADAPTIVE)
+    # -------------------------------------------------
+    facial = (
+        cnn["face"] * cnn_w +
+        llm["facialAnalysis"] * 0.35 +
+        heur["facialAnalysis"] * (0.65 - cnn_w)
+    )
+
     artifact = max(
-        hf_max,                      # 🔴 AI Ensemble Pixel Artifacts
-        llm["artifactDetection"],    # 🧠 Vision LLM Semantic Mistakes
-        cnn["artifact"],             # 🧪 Classic CNN Artifacts
-        heur["artifactDetection"]    # 📏 Heuristic signals
+        llm["artifactDetection"],
+        heur["artifactDetection"],
+        cnn["artifact"] * cnn_w
     )
 
-    # 2. Facial Analysis (Balance CNN with LLM reasoning)
-    facial = max(
-        hf_max if hf_max > 70 else 0, # HF also looks at faces
-        cnn["face"] * 0.7 + llm["facialAnalysis"] * 0.3
+    temporal = (
+        llm["temporalConsistency"] * 0.6 +
+        heur["temporalConsistency"] * 0.4
     )
 
-    # 3. Final Merged Details (for UI display)
+    metadata = heur["metadataAnalysis"]
+
     merged = {
         "facialAnalysis": int(round(facial)),
         "artifactDetection": int(round(artifact)),
-        "temporalConsistency": int(round(max(llm["temporalConsistency"], heur["temporalConsistency"]))),
-        "metadataAnalysis": int(round(exif_score if exif_score > 0 else 0)),
+        "temporalConsistency": int(round(temporal)),
+        "metadataAnalysis": int(round(metadata)),
     }
 
+    base_confidence = int(sum(merged.values()) / 4)
+
     # -------------------------------------------------
-    # FINAL IMAGE DECISION LOGIC
+    # FINAL IMAGE DECISION
     # -------------------------------------------------
     
-    # Context calculation for decision weighting
-    artifact_raw = max(cnn["artifact"], llm["artifactDetection"], hf_avg)
-    context = signal_context(fft=fft, exif_score=exif_score, artifact=artifact_raw)
+    
+    # 🔴 PRIORITY 1: STRONG REAL SIGNAL (Veto with Metadata)
+    if context == "REAL_STRONG" and cnn["fake"] < 99 and exif["authenticity_score"] >= 15:
+        verdict = "REAL"
+        confidence = max(80, min(base_confidence + 10, 95))
+        print(f"⚠️ VETO (Image): Physics + EXIF says REAL. Overriding CNN ({cnn['fake']:.1f}).")
 
-    is_fake = False
-    confidence = 50
-
-    # PRIORITY 1: High-confidence AI Ensemble OR LLM Semantic Certainty
-    if (hf_max >= 82) or (llm["artifactDetection"] >= 85):
-        is_fake = True
-        confidence = int(max(hf_max, llm["artifactDetection"]))
-        print(f"🎯 FUSION: AI Signature Detected ({hf_max}%) or Semantic Errors ({llm['artifactDetection']}%).")
-
-    # PRIORITY 2: Multiple signals indicate FAKE
-    elif (hf_avg >= 55) and (cnn["fake"] >= 65):
-        is_fake = True
-        confidence = int((hf_avg + cnn["fake"]) / 2)
-        print(f"🎯 FUSION: Signal Agreement (HF={hf_avg}%, CNN={cnn['fake']}%).")
-
-    # PRIORITY 3: DeepGuard CNN is certain
-    elif cnn["fake"] >= 85:
-        is_fake = True
+    # 🔴 PRIORITY 2: BLATANT FAKE
+    elif cnn["fake"] >= 90:
+        verdict = "FAKE"
         confidence = int(cnn["fake"])
-        print(f"🎯 FUSION: Backend CNN High-Confidence ({cnn['fake']}%).")
+    
+    # 🔴 PRIORITY 3: STRONG FAKE CONTEXT
+    elif context == "FAKE_STRONG":
+        verdict = "FAKE"
+        confidence = max(base_confidence, 85)
 
-    # PRIORITY 4: Strong Metadata VETO (Real Camera Verification)
-    elif context == "REAL_STRONG" and exif_score >= 25 and hf_max < 90:
-        is_fake = False
-        confidence = 90
-        print(f"🛡️ FUSION: Camera Metadata Veto - Image appears REAL ({exif_score}).")
+    elif base_confidence >= 70:
+        verdict = "FAKE"
+        confidence = base_confidence
 
-    # DEFAULT
     else:
-        is_fake = artifact >= 70 or facial >= 72
-        confidence = int(max(artifact, facial)) if is_fake else int(100 - max(artifact, facial))
-
-    verdict = "FAKE" if is_fake else "REAL"
+        verdict = "REAL"
+        confidence = base_confidence
 
     return {
         "verdict": verdict,
-        "confidence": int(min(max(confidence, 50), 99)),
+        "confidence": confidence,
         "details": merged,
         "engine": {
-            "primary": "image-fusion-v4",
-            "secondary": "ensemble+vision-llm+cnn",
+            "primary": "image-forensics-v3",
+            "secondary": "fft+exif+adaptive-cnn",
             "debug": {
-                "hf_avg": round(hf_avg, 1),
-                "hf_max": round(hf_max, 1),
+                "context": context,
+                "cnn_weight": cnn_w,
+                "fft": round(fft, 1),
                 "cnn_fake": round(cnn["fake"], 1),
-                "exif": exif_score,
-                "llm_artifact": llm["artifactDetection"]
+                "exif": exif["authenticity_score"],
             }
         }
     }
-
 
