@@ -97,7 +97,7 @@ Respond STRICTLY in valid JSON:
         img = Image.open(io.BytesIO(image_bytes))
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             contents=[img, prompt],
             config=types.GenerateContentConfig(
                 temperature=0.4,

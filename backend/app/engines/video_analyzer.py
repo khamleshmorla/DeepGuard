@@ -1,7 +1,7 @@
 import numpy as np
 from app.engines.cnn import run_cnn
 from app.engines.fft_detector import fft_score
-
+from app.engines.hf_video_detector import classify_video_frame
 
 import concurrent.futures
 from app.engines.custom_cnn import run_custom_cnn
@@ -28,8 +28,14 @@ def analyze_single_frame(path):
         fft_val = fft_score(path)
     except Exception:
         fft_val = 50
+
+    # Dedicated HF video deepfake model (only loaded on first video upload)
+    try:
+        hf_video_val = classify_video_frame(path)
+    except Exception:
+        hf_video_val = 50.0
         
-    return cnn_val, fft_val, 50, primary_val, custom_val  # Return individual scores for debug
+    return cnn_val, fft_val, 50, primary_val, custom_val, hf_video_val
 
 def analyze_video_frames(frame_paths):
     """
@@ -39,6 +45,7 @@ def analyze_video_frames(frame_paths):
     cnn_scores = []
     fft_scores = []
     artifact_scores = []
+    hf_video_scores = []
 
     # Parallelize frame analysis
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -47,12 +54,13 @@ def analyze_video_frames(frame_paths):
     primary_scores = []
     custom_scores = []
 
-    for c, f, a, p, k in results:
+    for c, f, a, p, k, hv in results:
         cnn_scores.append(c)
         fft_scores.append(f)
         artifact_scores.append(a)
         primary_scores.append(p)
         custom_scores.append(k)
+        hf_video_scores.append(hv)
 
     if not cnn_scores:
         return _safe_video_fallback()
@@ -66,6 +74,8 @@ def analyze_video_frames(frame_paths):
         "total_frames": len(cnn_scores),
         "primary_avg": float(np.mean(primary_scores)),
         "custom_avg": float(np.mean(custom_scores)),
+        "hf_video_avg": float(np.mean(hf_video_scores)),
+        "hf_video_max": float(np.max(hf_video_scores)),
     }
 
 
@@ -79,4 +89,6 @@ def _safe_video_fallback():
         "total_frames": 0,
         "primary_avg": 50,
         "custom_avg": 50,
+        "hf_video_avg": 50,
+        "hf_video_max": 50,
     }

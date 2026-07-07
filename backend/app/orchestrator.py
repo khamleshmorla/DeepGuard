@@ -114,58 +114,111 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
         cnn_avg = stats["cnn_avg"]
         cnn_max = stats["cnn_max"]
         artifact_avg = stats["artifact_avg"]
+        hf_video_avg = stats.get("hf_video_avg", 50)
+        hf_video_max = stats.get("hf_video_max", 50)
+
+        print(f"🎬 HF Video Detector: avg={hf_video_avg:.1f}%, max={hf_video_max:.1f}%")
 
         # Count how many signals indicate FAKE
         fake_signals = 0
         signal_scores = []
 
-        # Signal 1: CNN confidence
-        if cnn_max >= 75:
+        # Signal 1: CNN average confidence across all frames
+        if cnn_avg >= 75:
             fake_signals += 1
-            signal_scores.append(("CNN", cnn_max))
+            signal_scores.append(("CNN-Avg", cnn_avg))
 
-        # Signal 2: Artifact detection
+        # Signal 2: CNN peak frame (any single frame screaming fake)
+        if cnn_max >= 90:
+            fake_signals += 1
+            signal_scores.append(("CNN-Peak", cnn_max))
+
+        # Signal 3: Artifact detection
         if artifact_avg >= 70:
             fake_signals += 1
             signal_scores.append(("Artifact", artifact_avg))
 
-        # Signal 3: FFT anomaly
+        # Signal 4: FFT anomaly
         if fft_avg >= 65:
             fake_signals += 1
             signal_scores.append(("FFT", fft_avg))
 
-        # Signal 4: Temporal consistency
+        # Signal 5: Temporal consistency
         temporal_variance = abs(fft_avg - fft_min)
         if temporal_variance > 15:
             fake_signals += 1
             signal_scores.append(("Temporal", temporal_variance))
 
+        # Signal 6: Dedicated HF Video Deepfake Model
+        if hf_video_avg >= 65:
+            fake_signals += 1
+            signal_scores.append(("HF-Video", hf_video_avg))
+
+        # 🔴 HIGH-CONFIDENCE CNN OVERRIDE
+        # If CNN peak frame is extremely confident (>= 90%) AND average is also high (>= 70%),
+        # this is almost certainly AI-generated. Trust the CNN independently.
+        if cnn_max >= 90 and cnn_avg >= 70:
+            print(f"🔬 CNN OVERRIDE: Peak frame={cnn_max:.1f}%, Avg={cnn_avg:.1f}% → FAKE")
+            return {
+                "verdict": "FAKE",
+                "confidence": int(min(cnn_max, 95)),
+                "details": {
+                    "facialAnalysis": int(cnn_avg),
+                    "artifactDetection": int(artifact_avg),
+                    "temporalConsistency": int(100 - min(abs(fft_avg - fft_min), 100)),
+                    "metadataAnalysis": 0,
+                },
+                "engine": {
+                    "primary": "video-forensics-v3-cnn-override",
+                    "secondary": "cnn-peak+avg-consensus",
+                    "video_debug": {
+                        **stats,
+                        "fake_signal_count": fake_signals,
+                        "detected_signals": [f"{s[0]}:{int(s[1])}" for s in signal_scores],
+                    }
+                }
+            }
+
+        # 🔴 HIGH-CONFIDENCE HF VIDEO OVERRIDE
+        if hf_video_avg >= 85:
+            avg_fake_score = max(hf_video_avg, cnn_avg)
+            print(f"🔬 HF Video OVERRIDE: Dedicated model strongly says FAKE ({hf_video_avg:.1f}%)")
+            return {
+                "verdict": "FAKE",
+                "confidence": int(min(avg_fake_score, 95)),
+                "details": {
+                    "facialAnalysis": int(cnn_avg),
+                    "artifactDetection": int(artifact_avg),
+                    "temporalConsistency": int(100 - min(abs(fft_avg - fft_min), 100)),
+                    "metadataAnalysis": 0,
+                },
+                "engine": {
+                    "primary": "hf-video-deepfake-detector",
+                    "secondary": "dima806/deepfake_vs_real_image_detection",
+                    "video_debug": {
+                        **stats,
+                        "fake_signal_count": fake_signals,
+                        "detected_signals": [f"{s[0]}:{int(s[1])}" for s in signal_scores],
+                    }
+                }
+            }
+
         # 🔴 FAKE DECISION LOGIC
-        # Case A: Multiple signals agree it's fake
-        # Case B: CNN is very confident (>= 84%) even if others are neutral
-        # (Threshold 84 selected to catch 85.1% fake while sparing 80.3% real)
+        # Case A: 2+ signals agree it's fake
+        # Case B: CNN average is very high (>= 80%) on its own
         is_primary_fake = False
         if fake_signals >= 2:
             is_primary_fake = True
-        elif cnn_max >= 75:
+        elif cnn_avg >= 80:
             is_primary_fake = True
 
         if is_primary_fake:
-            # VETO: If FFT is "Strong Real" (< 30) AND Temporal is Stable (< 5)
-            # Then we need VERY strong CNN confidence (> 82) to override. 
-            # (User's false positive was CNN ~80.3)
-            # VETO LOGIC DISABLED (User requires high sensitivity for Deepfakes with clean physics)
-            # if fft_avg < 30 and temporal_variance < 5 and cnn_max < 82:
-            #    print(f"⚠️ VETO: Physics says REAL (FFT={fft_avg:.1f}, Var={temporal_variance:.1f}). Overriding CNN ({cnn_max:.1f}).")
-            #    verdict = "REAL"
-            #    confidence = 75
-            # else:
             avg_fake_score = sum([s[1] for s in signal_scores]) / len(signal_scores)
             verdict = "FAKE"
             confidence = int(min(avg_fake_score, 95))
 
-        # 🟢 STRONG REAL — clean frequency + stable frames + low CNN
-        elif fft_avg < 35 and cnn_max < 70 and abs(fft_avg - fft_min) < 8:
+        # 🟢 STRONG REAL — clean frequency + stable frames + low CNN + low HF
+        elif fft_avg < 35 and cnn_max < 60 and cnn_avg < 50 and abs(fft_avg - fft_min) < 8 and hf_video_avg < 40:
             verdict = "REAL"
             confidence = 85
 
@@ -184,8 +237,8 @@ def orchestrate_detection(file_path: str, file_type: str, original_path: str) ->
                 "metadataAnalysis": 0,
             },
             "engine": {
-                "primary": "video-forensics-v2",
-                "secondary": "fft+temporal+multi-signal-voting",
+                "primary": "video-forensics-v3",
+                "secondary": "fft+temporal+hf-video+multi-signal-voting",
                 "video_debug": {
                     **stats,
                     "fake_signal_count": fake_signals,
